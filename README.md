@@ -380,14 +380,14 @@ The Textual TUI provides a rich terminal interface with:
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────┐   ┌─────────────────────────────────────────┐   │
-│  │ Run Timeline / Trace   │   │ Answer & Citations                      │   │
+│  │ Run Timeline / Trace    │   │ Answer & Citations                      │   │
 │  │─────────────────────────│   │─────────────────────────────────────────│   │
-│  │ ● Planning         12ms│   │                                         │   │
-│  │ ● Query Decomp     45ms│   │ The answer to your question is...      │   │
-│  │ ● Dense Retrieval 210ms│   │                                         │   │
-│  │ ● BM25 Retrieval   85ms│   │ Citations:                              │   │
-│  │ ● Reranking       120ms│   │ [doc1] [doc2] [doc3]                    │   │
-│  │ ● Generation      450ms│   │                                         │   │
+│  │ ● Planning         12ms │   │                                         │   │
+│  │ ● Query Decomp     45ms │   │ The answer to your question is...       │   │
+│  │ ● Dense Retrieval 210ms │   │                                         │   │
+│  │ ● BM25 Retrieval   85ms │   │ Citations:                              │   │
+│  │ ● Reranking       120ms │   │ [doc1] [doc2] [doc3]                    │   │
+│  │ ● Generation      450ms │   │                                         │   │
 │  └─────────────────────────┘   └─────────────────────────────────────────┘   │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
