@@ -249,11 +249,49 @@ critic:
   # Maximum characters per document for critique
   max_doc_chars: 1200
 
-  # Retry synthesis if critic finds issues
-  retry_on_issues: false
+  # Retry synthesis if critic finds issues (enables agentic retry loop)
+  retry_on_issues: true
 
   # Maximum retry attempts
   max_retries: 2
+
+  # Confidence threshold - answers below this trigger "I don't know" response
+  confidence_threshold: 0.4
+
+  # Minimum retrieval confidence to proceed
+  min_retrieval_confidence: 0.3
+
+# -----------------------------------------------------------------------------
+# Agentic Behavior Configuration
+# -----------------------------------------------------------------------------
+# Controls the agentic enhancements: dynamic retrieval, tools, strategy memory
+agentic:
+  # Enable dynamic retrieval mode selection (let planner choose dense/bm25/hybrid)
+  dynamic_retrieval_mode: true
+
+  # Enable tool usage (calculator, code execution)
+  tools_enabled: true
+
+  # Enable strategy memory for adaptive retrieval learning
+  strategy_memory_enabled: true
+
+  # Path to store strategy memory (relative to working directory)
+  strategy_memory_path: "./data/strategy_memory.json.gz"
+
+  # Maximum retry attempts when critic finds quality issues
+  max_critic_retries: 2
+
+  # Overall confidence threshold for "I don't know" response
+  confidence_threshold: 0.4
+
+  # Enable query rewriting on retry attempts
+  rewrite_on_retry: true
+
+  # Expand retrieval scope on retry (fetch more documents)
+  expand_retrieval_on_retry: true
+
+  # Factor to expand retrieval by on retry (1.5 = 50% more docs)
+  retry_expansion_factor: 1.5
 
 # -----------------------------------------------------------------------------
 # Query Processing Configuration

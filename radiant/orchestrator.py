@@ -1,15 +1,19 @@
 """
-Pipeline orchestrator for Radiant Agentic RAG.
+Agentic pipeline orchestrator for Radiant RAG.
 
-Coordinates the execution of all pipeline agents in the correct order,
-handling errors gracefully and tracking metrics.
+Coordinates the execution of all pipeline agents with:
+- Critic-driven retry loop for quality improvement
+- Confidence thresholds with "I don't know" fallback
+- Dynamic retrieval mode selection
+- Tool integration
+- Strategy memory for adaptive behavior
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from radiant.config import AppConfig
@@ -34,19 +38,48 @@ from radiant.agents import (
     WebSearchAgent,
     new_agent_context,
 )
+from radiant.agents.tools import (
+    ToolRegistry,
+    ToolSelector,
+    create_default_tool_registry,
+)
+from radiant.agents.strategy_memory import RetrievalStrategyMemory
 
 logger = logging.getLogger(__name__)
 
 
+# Low confidence response template
+LOW_CONFIDENCE_RESPONSE = """I don't have enough confidence to provide a reliable answer to your question.
+
+**What I found:** {summary}
+
+**Why I'm uncertain:**
+{reasons}
+
+**Suggestions:**
+- Try rephrasing your question with more specific terms
+- The information you're looking for may not be in the indexed documents
+- Consider providing more context about what you're looking for
+
+Confidence: {confidence:.0%}"""
+
+
 @dataclass
 class PipelineResult:
-    """Result of a complete pipeline run."""
+    """Result of a complete pipeline run with confidence metrics."""
     
     answer: str
     context: AgentContext
     metrics: RunMetrics
     success: bool = True
     error: Optional[str] = None
+    
+    # Agentic enhancements
+    confidence: float = 0.0
+    retrieval_mode_used: str = "hybrid"
+    retry_count: int = 0
+    tools_used: List[str] = field(default_factory=list)
+    low_confidence: bool = False
 
     @property
     def run_id(self) -> str:
@@ -64,20 +97,25 @@ class PipelineResult:
             "num_retrieved_docs": len(self.context.reranked),
             "warnings": self.context.warnings,
             "metrics": self.metrics.to_dict(),
+            # Agentic fields
+            "confidence": self.confidence,
+            "retrieval_mode_used": self.retrieval_mode_used,
+            "retry_count": self.retry_count,
+            "tools_used": self.tools_used,
+            "low_confidence": self.low_confidence,
         }
 
 
 class RAGOrchestrator:
     """
-    Orchestrates the complete RAG pipeline.
+    Agentic orchestrator for the complete RAG pipeline.
     
-    Coordinates all agents in the correct sequence:
-        1. Planning (optional)
-        2. Query processing (decomposition, rewrite, expansion)
-        3. Retrieval (dense + sparse)
-        4. Fusion (RRF)
-        5. Post-retrieval (auto-merge, rerank)
-        6. Generation (synthesis, critique)
+    Coordinates all agents with:
+    - Critic-driven retry loop for answer quality improvement
+    - Confidence thresholds with graceful "I don't know" fallback
+    - Dynamic retrieval mode selection based on query analysis
+    - Tool integration for calculations and code execution
+    - Strategy memory for learning optimal retrieval strategies
     """
 
     def __init__(
@@ -90,7 +128,7 @@ class RAGOrchestrator:
         conversation_manager: Optional[ConversationManager] = None,
     ) -> None:
         """
-        Initialize the orchestrator.
+        Initialize the agentic orchestrator.
         
         Args:
             config: Application configuration
@@ -102,12 +140,30 @@ class RAGOrchestrator:
         """
         self._config = config
         self._pipeline_config = config.pipeline
+        self._agentic_config = config.agentic
         self._conversation = conversation_manager
+
+        # Initialize strategy memory
+        self._strategy_memory: Optional[RetrievalStrategyMemory] = None
+        if config.agentic.strategy_memory_enabled:
+            self._strategy_memory = RetrievalStrategyMemory(
+                storage_path=config.agentic.strategy_memory_path
+            )
+
+        # Initialize tool registry
+        self._tool_registry: Optional[ToolRegistry] = None
+        self._tool_selector: Optional[ToolSelector] = None
+        if config.agentic.tools_enabled:
+            self._tool_registry = create_default_tool_registry()
+            self._tool_selector = ToolSelector(llm, self._tool_registry)
 
         # Initialize agents
         self._planning_agent = PlanningAgent(
-            llm, 
-            web_search_enabled=config.web_search.enabled
+            llm,
+            web_search_enabled=config.web_search.enabled,
+            tools_enabled=config.agentic.tools_enabled,
+            available_tools=self._tool_registry.get_tools_for_llm() if self._tool_registry else [],
+            strategy_memory=self._strategy_memory,
         )
         self._decomposition_agent = QueryDecompositionAgent(llm, config.query)
         self._rewrite_agent = QueryRewriteAgent(llm)
@@ -128,38 +184,37 @@ class RAGOrchestrator:
         )
         self._critic_agent = CriticAgent(llm, config.critic)
 
-        logger.info(f"RAG orchestrator initialized (web_search={'enabled' if config.web_search.enabled else 'disabled'})")
+        logger.info(
+            f"Agentic RAG orchestrator initialized "
+            f"(web_search={'enabled' if config.web_search.enabled else 'disabled'}, "
+            f"tools={'enabled' if config.agentic.tools_enabled else 'disabled'}, "
+            f"strategy_memory={'enabled' if config.agentic.strategy_memory_enabled else 'disabled'})"
+        )
 
     def run(
         self,
         query: str,
         conversation_id: Optional[str] = None,
         plan_override: Optional[Dict[str, bool]] = None,
-        retrieval_mode: str = "hybrid",
+        retrieval_mode: Optional[str] = None,
     ) -> PipelineResult:
         """
-        Execute the complete RAG pipeline.
+        Execute the complete agentic RAG pipeline with retry loop.
         
         Args:
             query: User query
             conversation_id: Optional conversation ID for history
             plan_override: Optional override for pipeline plan
-            retrieval_mode: Retrieval mode - "hybrid" (default), "dense", or "bm25"
+            retrieval_mode: Override retrieval mode (None = dynamic selection)
             
         Returns:
-            PipelineResult with answer and metadata
+            PipelineResult with answer, confidence, and metadata
         """
-        # Validate retrieval mode
-        valid_modes = {"hybrid", "dense", "bm25"}
-        if retrieval_mode not in valid_modes:
-            logger.warning(f"Invalid retrieval_mode '{retrieval_mode}', using 'hybrid'")
-            retrieval_mode = "hybrid"
-        
         # Initialize context and metrics
         ctx = new_agent_context(query, conversation_id)
         metrics = RunMetrics(run_id=ctx.run_id)
         
-        logger.info(f"[{ctx.run_id}] Starting pipeline for query: {query[:100]}... (mode={retrieval_mode})")
+        logger.info(f"[{ctx.run_id}] Starting agentic pipeline for query: {query[:100]}...")
 
         try:
             # Load conversation history if available
@@ -167,37 +222,122 @@ class RAGOrchestrator:
                 self._conversation.load_conversation(conversation_id)
                 ctx.conversation_history = self._conversation.get_history_for_synthesis()
 
-            # Phase 1: Planning
+            # Phase 1: Planning with dynamic mode selection
             plan = self._run_planning(ctx, metrics, plan_override)
+            
+            # Determine retrieval mode (override > plan > dynamic)
+            if retrieval_mode and retrieval_mode in ("hybrid", "dense", "bm25"):
+                ctx.retrieval_mode = retrieval_mode
+            else:
+                ctx.retrieval_mode = plan.get("retrieval_mode", "hybrid")
+            
+            logger.info(f"[{ctx.run_id}] Retrieval mode: {ctx.retrieval_mode}")
 
-            # Phase 2: Query Processing
-            queries = self._run_query_processing(ctx, metrics, plan)
+            # Phase 2: Execute tools if any were selected
+            if plan.get("tools_to_use") and self._tool_registry:
+                self._run_tools(ctx, metrics, plan.get("tools_to_use", []))
 
-            # Phase 3: Retrieval
-            self._run_retrieval(ctx, metrics, queries, plan, retrieval_mode)
+            # Main retrieval-generation loop with critic retry
+            max_retries = self._agentic_config.max_critic_retries
+            confidence_threshold = self._agentic_config.confidence_threshold
+            
+            for attempt in range(max_retries + 1):
+                is_retry = attempt > 0
+                
+                if is_retry:
+                    logger.info(f"[{ctx.run_id}] Retry attempt {attempt}/{max_retries}")
+                
+                # Phase 3: Query Processing
+                queries = self._run_query_processing(ctx, metrics, plan, is_retry)
 
-            # Phase 4: Post-retrieval Processing
-            self._run_post_retrieval(ctx, metrics, plan)
+                # Phase 4: Retrieval
+                self._run_retrieval(ctx, metrics, queries, plan, ctx.retrieval_mode)
 
-            # Phase 5: Generation
-            answer = self._run_generation(ctx, metrics, plan)
+                # Phase 5: Post-retrieval Processing
+                self._run_post_retrieval(ctx, metrics, plan)
+                
+                # Evaluate retrieval quality
+                ctx.retrieval_confidence = self._critic_agent.evaluate_retrieval_quality(
+                    ctx.original_query,
+                    ctx.reranked
+                )
+
+                # Phase 6: Generation
+                answer = self._run_generation(ctx, metrics, plan, is_retry, attempt)
+
+                # Phase 7: Critique with confidence scoring
+                if plan.get("use_critic", True) and self._config.critic.enabled:
+                    critique = self._run_critique(ctx, metrics, is_retry, attempt)
+                    ctx.answer_confidence = critique.get("confidence", 0.5)
+                    
+                    # Check if we should retry
+                    if critique.get("should_retry", False) and attempt < max_retries:
+                        # Record retry
+                        ctx.record_retry(
+                            reason=", ".join(critique.get("issues", ["low confidence"])),
+                            previous_confidence=ctx.answer_confidence,
+                            modifications={"attempt": attempt + 1}
+                        )
+                        
+                        # Modify plan for retry
+                        if self._agentic_config.rewrite_on_retry:
+                            plan["use_rewrite"] = True
+                        if self._agentic_config.expand_retrieval_on_retry:
+                            plan["use_expansion"] = True
+                        
+                        # Maybe switch retrieval mode
+                        plan = self._planning_agent.plan_retry(
+                            query, plan, critique, attempt + 1
+                        )
+                        ctx.retrieval_mode = plan.get("retrieval_mode", ctx.retrieval_mode)
+                        
+                        continue  # Retry
+                    
+                    # Check if we should give up
+                    if self._critic_agent.should_give_up(critique, attempt):
+                        answer = self._generate_low_confidence_response(
+                            ctx, critique
+                        )
+                        ctx.low_confidence_response = True
+                else:
+                    ctx.answer_confidence = 0.5  # Default if critic disabled
+                
+                # Success - break retry loop
+                break
+
+            # Record strategy outcome
+            if self._strategy_memory:
+                self._strategy_memory.record_outcome(
+                    query=query,
+                    strategy=ctx.retrieval_mode,
+                    confidence=ctx.answer_confidence,
+                    success=not ctx.low_confidence_response,
+                    num_retrieved=len(ctx.fused),
+                    num_relevant=len(ctx.reranked),
+                    critic_ok=not ctx.low_confidence_response,
+                )
 
             # Record conversation turn
             if self._conversation and conversation_id:
                 self._conversation.add_user_query(query)
-                self._conversation.add_assistant_response(answer)
+                self._conversation.add_assistant_response(ctx.final_answer or answer)
 
             metrics.finish(
                 query=query,
-                answer_length=len(answer),
+                answer_length=len(ctx.final_answer or answer),
                 num_docs_used=len(ctx.reranked),
             )
 
             return PipelineResult(
-                answer=answer,
+                answer=ctx.final_answer or answer,
                 context=ctx,
                 metrics=metrics,
                 success=True,
+                confidence=ctx.answer_confidence,
+                retrieval_mode_used=ctx.retrieval_mode,
+                retry_count=ctx.retry_count,
+                tools_used=[r.get("tool_name", "") for r in ctx.tool_results],
+                low_confidence=ctx.low_confidence_response,
             )
 
         except Exception as e:
@@ -210,6 +350,10 @@ class RAGOrchestrator:
                 metrics=metrics,
                 success=False,
                 error=str(e),
+                confidence=0.0,
+                retrieval_mode_used=ctx.retrieval_mode,
+                retry_count=ctx.retry_count,
+                low_confidence=True,
             )
 
     def _run_planning(
@@ -218,7 +362,7 @@ class RAGOrchestrator:
         metrics: RunMetrics,
         plan_override: Optional[Dict[str, bool]],
     ) -> Dict[str, Any]:
-        """Execute planning phase."""
+        """Execute planning phase with dynamic retrieval mode selection."""
         if plan_override:
             ctx.plan = plan_override
             return plan_override
@@ -233,6 +377,8 @@ class RAGOrchestrator:
                 "use_automerge": self._pipeline_config.use_automerge,
                 "use_rerank": self._pipeline_config.use_rerank,
                 "use_critic": self._pipeline_config.use_critic,
+                "retrieval_mode": "hybrid",
+                "tools_to_use": [],
             }
             return ctx.plan
 
@@ -240,6 +386,8 @@ class RAGOrchestrator:
             try:
                 ctx.plan = self._planning_agent.run(ctx.original_query)
                 step.extra["plan"] = ctx.plan
+                step.extra["retrieval_mode"] = ctx.plan.get("retrieval_mode", "hybrid")
+                step.extra["tools"] = ctx.plan.get("tools_to_use", [])
             except Exception as e:
                 logger.warning(f"Planning failed, using defaults: {e}")
                 metrics.mark_degraded("planning", str(e))
@@ -251,21 +399,58 @@ class RAGOrchestrator:
                     "use_automerge": True,
                     "use_rerank": True,
                     "use_critic": True,
+                    "retrieval_mode": "hybrid",
+                    "tools_to_use": [],
                 }
 
         return ctx.plan
+
+    def _run_tools(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        tools_to_use: List[str],
+    ) -> None:
+        """Execute requested tools."""
+        if not self._tool_registry:
+            return
+        
+        for tool_name in tools_to_use:
+            with metrics.track_step(f"Tool:{tool_name}") as step:
+                try:
+                    # For calculator, try to extract expression from query
+                    if tool_name == "calculator":
+                        result = self._tool_registry.execute(
+                            tool_name,
+                            expression=ctx.original_query
+                        )
+                    else:
+                        result = self._tool_registry.execute(
+                            tool_name,
+                            code=ctx.original_query,
+                            context={}
+                        )
+                    
+                    ctx.add_tool_result(result.to_dict())
+                    step.extra["success"] = result.success
+                    step.extra["output"] = str(result.output)[:200] if result.output else None
+                    
+                except Exception as e:
+                    logger.warning(f"Tool {tool_name} failed: {e}")
+                    step.extra["error"] = str(e)
 
     def _run_query_processing(
         self,
         ctx: AgentContext,
         metrics: RunMetrics,
         plan: Dict[str, Any],
+        is_retry: bool = False,
     ) -> List[str]:
         """Execute query processing phase."""
         queries = [ctx.original_query]
 
         # Query decomposition
-        if plan.get("use_decomposition", True):
+        if plan.get("use_decomposition", True) and not is_retry:
             with metrics.track_step("QueryDecompositionAgent") as step:
                 try:
                     ctx.decomposed_queries = self._decomposition_agent.run(
@@ -278,9 +463,10 @@ class RAGOrchestrator:
                     metrics.mark_degraded("decomposition", str(e))
                     ctx.decomposed_queries = [ctx.original_query]
 
-        # Query rewriting
+        # Query rewriting (especially important on retry)
         if plan.get("use_rewrite", True):
-            with metrics.track_step("QueryRewriteAgent") as step:
+            step_name = "QueryRewriteAgent" + ("_retry" if is_retry else "")
+            with metrics.track_step(step_name) as step:
                 try:
                     rewrites = []
                     for q in queries:
@@ -288,21 +474,24 @@ class RAGOrchestrator:
                         rewrites.append((before, after))
                     ctx.rewrites = rewrites
                     queries = [after for _, after in rewrites]
-                    step.extra["rewrites"] = len(rewrites)
+                    step.extra["num_rewrites"] = len(rewrites)
                 except Exception as e:
-                    logger.warning(f"Rewrite failed: {e}")
+                    logger.warning(f"Rewriting failed: {e}")
                     metrics.mark_degraded("rewrite", str(e))
 
         # Query expansion
         if plan.get("use_expansion", True):
-            with metrics.track_step("QueryExpansionAgent") as step:
+            step_name = "QueryExpansionAgent" + ("_retry" if is_retry else "")
+            with metrics.track_step(step_name) as step:
                 try:
-                    all_expansions = []
+                    expansions = []
                     for q in queries:
-                        expansions = self._expansion_agent.run(q)
-                        all_expansions.extend(expansions)
-                    ctx.expansions = list(set(all_expansions))
-                    step.extra["num_expansions"] = len(ctx.expansions)
+                        expanded = self._expansion_agent.run(q)
+                        expansions.extend(expanded)
+                    ctx.expansions = expansions
+                    # Add expansions to queries
+                    queries = list(set(queries + expansions))
+                    step.extra["num_expansions"] = len(expansions)
                 except Exception as e:
                     logger.warning(f"Expansion failed: {e}")
                     metrics.mark_degraded("expansion", str(e))
@@ -315,47 +504,21 @@ class RAGOrchestrator:
         metrics: RunMetrics,
         queries: List[str],
         plan: Dict[str, Any],
-        retrieval_mode: str = "hybrid",
+        retrieval_mode: str,
     ) -> None:
-        """Execute retrieval phase.
-        
-        Args:
-            ctx: Agent context
-            metrics: Metrics collector
-            queries: Queries to search
-            plan: Pipeline plan
-            retrieval_mode: "hybrid", "dense", or "bm25"
-        """
-        # Combine queries with expansions for retrieval
-        all_queries = queries + ctx.expansions
-
-        # Dense retrieval (skip if bm25-only mode)
+        """Execute retrieval phase with dynamic mode."""
+        # Dense retrieval
         if retrieval_mode in ("hybrid", "dense"):
             with metrics.track_step("DenseRetrievalAgent") as step:
                 try:
-                    all_dense: List[Tuple[StoredDoc, float]] = []
-                    for q in all_queries:
-                        results = self._dense_retrieval.run(q)
-                        all_dense.extend(results)
-                    
-                    # Deduplicate, keeping best score
-                    best_by_id: Dict[str, Tuple[StoredDoc, float]] = {}
-                    for doc, score in all_dense:
-                        existing = best_by_id.get(doc.doc_id)
-                        if existing is None or score > existing[1]:
-                            best_by_id[doc.doc_id] = (doc, score)
-                    
-                    ctx.dense_retrieved = sorted(
-                        best_by_id.values(),
-                        key=lambda x: x[1],
-                        reverse=True,
-                    )
+                    ctx.dense_retrieved = self._dense_retrieval.run(queries)
                     step.extra["num_retrieved"] = len(ctx.dense_retrieved)
+                    step.extra["mode"] = "active"
                 except Exception as e:
-                    logger.error(f"Dense retrieval failed: {e}")
+                    logger.warning(f"Dense retrieval failed: {e}")
                     if retrieval_mode == "dense":
-                        raise  # Fail if dense-only mode
-                    # Continue with BM25 in hybrid mode
+                        raise
+                    metrics.mark_degraded("dense_retrieval", str(e))
         else:
             step_info = metrics.track_step("DenseRetrievalAgent")
             step_info.__enter__()
@@ -363,32 +526,17 @@ class RAGOrchestrator:
             step_info.extra["reason"] = f"mode={retrieval_mode}"
             step_info.__exit__(None, None, None)
 
-        # BM25 retrieval (skip if dense-only mode)
+        # BM25 retrieval
         if retrieval_mode in ("hybrid", "bm25"):
             with metrics.track_step("BM25RetrievalAgent") as step:
                 try:
-                    all_bm25: List[Tuple[StoredDoc, float]] = []
-                    for q in all_queries:
-                        results = self._bm25_retrieval.run(q)
-                        all_bm25.extend(results)
-                    
-                    # Deduplicate
-                    best_by_id: Dict[str, Tuple[StoredDoc, float]] = {}
-                    for doc, score in all_bm25:
-                        existing = best_by_id.get(doc.doc_id)
-                        if existing is None or score > existing[1]:
-                            best_by_id[doc.doc_id] = (doc, score)
-                    
-                    ctx.bm25_retrieved = sorted(
-                        best_by_id.values(),
-                        key=lambda x: x[1],
-                        reverse=True,
-                    )
+                    ctx.bm25_retrieved = self._bm25_retrieval.run(queries)
                     step.extra["num_retrieved"] = len(ctx.bm25_retrieved)
+                    step.extra["mode"] = "active"
                 except Exception as e:
                     logger.warning(f"BM25 retrieval failed: {e}")
                     if retrieval_mode == "bm25":
-                        raise  # Fail if bm25-only mode
+                        raise
                     metrics.mark_degraded("bm25_retrieval", str(e))
         else:
             step_info = metrics.track_step("BM25RetrievalAgent")
@@ -398,34 +546,29 @@ class RAGOrchestrator:
             step_info.__exit__(None, None, None)
 
         # Web search (if enabled and requested by plan)
-        if self._web_search_agent and (plan.get("use_web_search", False) or 
-            self._config.web_search.enabled):
+        if self._web_search_agent and plan.get("use_web_search", False):
             with metrics.track_step("WebSearchAgent") as step:
                 try:
                     ctx.web_search_retrieved = self._web_search_agent.run(
                         ctx.original_query, plan
                     )
                     step.extra["num_retrieved"] = len(ctx.web_search_retrieved)
-                    step.extra["urls_fetched"] = [
-                        doc.meta.get("source_url", "unknown")
-                        for doc, _ in ctx.web_search_retrieved
-                    ]
                 except Exception as e:
                     logger.warning(f"Web search failed: {e}")
                     metrics.mark_degraded("web_search", str(e))
                     ctx.web_search_retrieved = []
-        else:
-            # Skip web search - not enabled or not in plan
-            if self._web_search_agent is None:
-                pass  # Don't even log skipped step if not configured
-            else:
-                step_info = metrics.track_step("WebSearchAgent")
-                step_info.__enter__()
-                step_info.extra["skipped"] = True
-                step_info.extra["reason"] = "not_triggered"
-                step_info.__exit__(None, None, None)
 
         # RRF Fusion - combine all retrieval sources
+        self._fuse_results(ctx, metrics, plan, retrieval_mode)
+
+    def _fuse_results(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        plan: Dict[str, Any],
+        retrieval_mode: str,
+    ) -> None:
+        """Fuse results from multiple retrievers."""
         retrieval_lists = []
         
         if retrieval_mode in ("hybrid", "dense") and ctx.dense_retrieved:
@@ -444,17 +587,14 @@ class RAGOrchestrator:
                 except Exception as e:
                     logger.warning(f"RRF fusion failed: {e}")
                     metrics.mark_degraded("rrf", str(e))
-                    # Fallback to first available list
                     ctx.fused = retrieval_lists[0] if retrieval_lists else []
         elif len(retrieval_lists) == 1:
-            # Only one source, use directly
             ctx.fused = retrieval_lists[0]
         elif retrieval_mode == "dense":
             ctx.fused = ctx.dense_retrieved
         elif retrieval_mode == "bm25":
             ctx.fused = ctx.bm25_retrieved
         else:
-            # Hybrid fallback
             ctx.fused = ctx.dense_retrieved or ctx.bm25_retrieved or []
 
     def _run_post_retrieval(
@@ -501,44 +641,100 @@ class RAGOrchestrator:
         ctx: AgentContext,
         metrics: RunMetrics,
         plan: Dict[str, Any],
+        is_retry: bool = False,
+        retry_count: int = 0,
     ) -> str:
         """Execute generation phase."""
-        # Extract documents for synthesis
         context_docs = [doc for doc, _ in ctx.reranked]
 
         if not context_docs:
             ctx.add_warning("No relevant documents found")
             return "I couldn't find any relevant documents to answer your question. Could you please rephrase or provide more context?"
 
+        # Add tool results to context if available
+        tool_context = ""
+        if ctx.tool_results:
+            tool_parts = []
+            for result in ctx.tool_results:
+                if result.get("success") and result.get("output"):
+                    tool_parts.append(f"[Tool: {result.get('tool_name')}] {result.get('output')}")
+            if tool_parts:
+                tool_context = "\n\nTool Results:\n" + "\n".join(tool_parts)
+
         # Answer synthesis
-        with metrics.track_step("AnswerSynthesisAgent") as step:
+        step_name = "AnswerSynthesisAgent" + ("_retry" if is_retry else "")
+        with metrics.track_step(step_name) as step:
             ctx.final_answer = self._synthesis_agent.run(
                 ctx.original_query,
                 context_docs,
-                ctx.conversation_history,
+                ctx.conversation_history + tool_context,
             )
             step.extra["answer_length"] = len(ctx.final_answer)
+            step.extra["retry_count"] = retry_count
 
-        # Critique
-        if plan.get("use_critic", True) and self._config.critic.enabled:
-            with metrics.track_step("CriticAgent") as step:
-                try:
-                    critique = self._critic_agent.run(
-                        ctx.original_query,
-                        ctx.final_answer,
-                        context_docs,
-                    )
-                    ctx.critic_notes.append(critique)
-                    step.extra["critic_ok"] = critique.get("ok", True)
-                    
-                    if not critique.get("ok", True):
-                        issues = critique.get("issues", [])
-                        if issues:
-                            ctx.add_warning(f"Critic found issues: {', '.join(issues)}")
-                except Exception as e:
-                    logger.warning(f"Critic failed: {e}")
-                    metrics.mark_degraded("critic", str(e))
+        return ctx.final_answer
 
+    def _run_critique(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        is_retry: bool = False,
+        retry_count: int = 0,
+    ) -> Dict[str, Any]:
+        """Execute critique phase with confidence scoring."""
+        context_docs = [doc for doc, _ in ctx.reranked]
+        
+        step_name = "CriticAgent" + ("_retry" if is_retry else "")
+        with metrics.track_step(step_name) as step:
+            try:
+                critique = self._critic_agent.run(
+                    ctx.original_query,
+                    ctx.final_answer,
+                    context_docs,
+                    is_retry=is_retry,
+                    retry_count=retry_count,
+                )
+                ctx.critic_notes.append(critique)
+                step.extra["confidence"] = critique.get("confidence", 0.5)
+                step.extra["ok"] = critique.get("ok", True)
+                step.extra["should_retry"] = critique.get("should_retry", False)
+                
+                if not critique.get("ok", True):
+                    issues = critique.get("issues", [])
+                    if issues:
+                        ctx.add_warning(f"Critic found issues: {', '.join(issues[:3])}")
+                
+                return critique
+                
+            except Exception as e:
+                logger.warning(f"Critic failed: {e}")
+                metrics.mark_degraded("critic", str(e))
+                return {"ok": True, "confidence": 0.5, "should_retry": False}
+
+    def _generate_low_confidence_response(
+        self,
+        ctx: AgentContext,
+        critique: Dict[str, Any],
+    ) -> str:
+        """Generate a graceful low-confidence response."""
+        # Get summary of what we found
+        summary = "Limited relevant information was found."
+        if ctx.reranked:
+            doc_count = len(ctx.reranked)
+            summary = f"{doc_count} potentially relevant document(s) were found, but the information may be incomplete or not directly applicable."
+        
+        # Get reasons for uncertainty
+        reasons = critique.get("issues", ["The available information may not fully address your question."])
+        reasons_text = "\n".join([f"- {r}" for r in reasons[:3]])
+        
+        confidence = critique.get("confidence", 0.0)
+        
+        ctx.final_answer = LOW_CONFIDENCE_RESPONSE.format(
+            summary=summary,
+            reasons=reasons_text,
+            confidence=confidence,
+        )
+        
         return ctx.final_answer
 
 

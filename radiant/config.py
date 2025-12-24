@@ -272,8 +272,43 @@ class CriticConfig:
     enabled: bool = True
     max_context_docs: int = 8
     max_doc_chars: int = 1200
-    retry_on_issues: bool = False
+    retry_on_issues: bool = True  # Enable critic-driven retry by default
     max_retries: int = 2
+    # Confidence threshold - below this returns "I don't know"
+    confidence_threshold: float = 0.4
+    # Minimum score to consider retrieval successful
+    min_retrieval_confidence: float = 0.3
+
+
+@dataclass(frozen=True)
+class AgenticConfig:
+    """Agentic behavior configuration."""
+    # Enable dynamic retrieval mode selection
+    dynamic_retrieval_mode: bool = True
+    
+    # Enable tool usage (calculator, code execution)
+    tools_enabled: bool = True
+    
+    # Enable strategy memory for adaptive retrieval
+    strategy_memory_enabled: bool = True
+    
+    # Path to store strategy memory (relative to data dir)
+    strategy_memory_path: str = "./data/strategy_memory.json.gz"
+    
+    # Maximum retry attempts when critic finds issues
+    max_critic_retries: int = 2
+    
+    # Confidence threshold for "I don't know" response
+    confidence_threshold: float = 0.4
+    
+    # Enable query rewriting on retry
+    rewrite_on_retry: bool = True
+    
+    # Expand retrieval on retry (fetch more documents)
+    expand_retrieval_on_retry: bool = True
+    
+    # Retrieval expansion factor on retry
+    retry_expansion_factor: float = 1.5
 
 
 @dataclass(frozen=True)
@@ -462,6 +497,7 @@ class AppConfig:
     automerge: AutoMergeConfig
     synthesis: SynthesisConfig
     critic: CriticConfig
+    agentic: AgenticConfig
     query: QueryConfig
     conversation: ConversationConfig
     parsing: ParsingConfig
@@ -643,8 +679,22 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         enabled=_get_config_value(data, "critic", "enabled", True, _parse_bool),
         max_context_docs=_get_config_value(data, "critic", "max_context_docs", 8, _parse_int),
         max_doc_chars=_get_config_value(data, "critic", "max_doc_chars", 1200, _parse_int),
-        retry_on_issues=_get_config_value(data, "critic", "retry_on_issues", False, _parse_bool),
+        retry_on_issues=_get_config_value(data, "critic", "retry_on_issues", True, _parse_bool),
         max_retries=_get_config_value(data, "critic", "max_retries", 2, _parse_int),
+        confidence_threshold=_get_config_value(data, "critic", "confidence_threshold", 0.4, _parse_float),
+        min_retrieval_confidence=_get_config_value(data, "critic", "min_retrieval_confidence", 0.3, _parse_float),
+    )
+
+    agentic = AgenticConfig(
+        dynamic_retrieval_mode=_get_config_value(data, "agentic", "dynamic_retrieval_mode", True, _parse_bool),
+        tools_enabled=_get_config_value(data, "agentic", "tools_enabled", True, _parse_bool),
+        strategy_memory_enabled=_get_config_value(data, "agentic", "strategy_memory_enabled", True, _parse_bool),
+        strategy_memory_path=_get_config_value(data, "agentic", "strategy_memory_path", "./data/strategy_memory.json.gz"),
+        max_critic_retries=_get_config_value(data, "agentic", "max_critic_retries", 2, _parse_int),
+        confidence_threshold=_get_config_value(data, "agentic", "confidence_threshold", 0.4, _parse_float),
+        rewrite_on_retry=_get_config_value(data, "agentic", "rewrite_on_retry", True, _parse_bool),
+        expand_retrieval_on_retry=_get_config_value(data, "agentic", "expand_retrieval_on_retry", True, _parse_bool),
+        retry_expansion_factor=_get_config_value(data, "agentic", "retry_expansion_factor", 1.5, _parse_float),
     )
 
     query = QueryConfig(
@@ -780,6 +830,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         automerge=automerge,
         synthesis=synthesis,
         critic=critic,
+        agentic=agentic,
         query=query,
         conversation=conversation,
         parsing=parsing,

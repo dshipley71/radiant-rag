@@ -380,14 +380,14 @@ The Textual TUI provides a rich terminal interface with:
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────┐   ┌─────────────────────────────────────────┐   │
-│  │ Run Timeline / Trace    │   │ Answer & Citations                      │   │
+│  │ Run Timeline / Trace   │   │ Answer & Citations                      │   │
 │  │─────────────────────────│   │─────────────────────────────────────────│   │
-│  │ ● Planning         12ms │   │                                         │   │
-│  │ ● Query Decomp     45ms │   │ The answer to your question is...       │   │
-│  │ ● Dense Retrieval 210ms │   │                                         │   │
-│  │ ● BM25 Retrieval   85ms │   │ Citations:                              │   │
-│  │ ● Reranking       120ms │   │ [doc1] [doc2] [doc3]                    │   │
-│  │ ● Generation      450ms │   │                                         │   │
+│  │ ● Planning         12ms│   │                                         │   │
+│  │ ● Query Decomp     45ms│   │ The answer to your question is...      │   │
+│  │ ● Dense Retrieval 210ms│   │                                         │   │
+│  │ ● BM25 Retrieval   85ms│   │ Citations:                              │   │
+│  │ ● Reranking       120ms│   │ [doc1] [doc2] [doc3]                    │   │
+│  │ ● Generation      450ms│   │                                         │   │
 │  └─────────────────────────┘   └─────────────────────────────────────────┘   │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -766,6 +766,85 @@ web_search:
 
 ---
 
+## Agentic Enhancements
+
+The system includes several agentic capabilities that enable self-improvement and adaptive behavior:
+
+### Critic-Driven Retry Loop
+
+When the CriticAgent detects quality issues, the system automatically retries with modified strategies:
+
+```
+Query → Plan → Retrieve → Generate → Critique ──┐
+          ↑                                      │
+          └────── Retry with modifications ←─────┘
+                  (if confidence < threshold)
+```
+
+Configure in `config.yaml`:
+```yaml
+agentic:
+  max_critic_retries: 2       # Maximum retry attempts
+  rewrite_on_retry: true      # Rewrite query on retry
+  expand_retrieval_on_retry: true  # Fetch more documents
+```
+
+### Confidence Thresholds
+
+The system provides confidence scores and gracefully returns "I don't know" when confidence is low:
+
+```yaml
+agentic:
+  confidence_threshold: 0.4   # Below this returns "I don't know"
+
+critic:
+  confidence_threshold: 0.4   # Minimum acceptable confidence
+  min_retrieval_confidence: 0.3
+```
+
+### Dynamic Retrieval Mode Selection
+
+The PlanningAgent automatically selects the optimal retrieval strategy:
+
+- **hybrid**: Best for most queries (default)
+- **dense**: Best for semantic/conceptual queries
+- **bm25**: Best for specific terms, names, exact phrases
+
+```yaml
+agentic:
+  dynamic_retrieval_mode: true  # Let planner choose mode
+```
+
+### Tool Integration
+
+Built-in tools for enhanced capabilities:
+
+- **Calculator**: Safe mathematical expression evaluation
+- **Code Executor**: Sandboxed Python for data manipulation
+
+```yaml
+agentic:
+  tools_enabled: true
+```
+
+### Strategy Memory
+
+Tracks which retrieval strategies work best for different query patterns:
+
+```yaml
+agentic:
+  strategy_memory_enabled: true
+  strategy_memory_path: "./data/strategy_memory.json.gz"
+```
+
+The system learns over time which strategies work for:
+- Factual queries ("what is...")
+- Comparison queries ("compare X and Y")
+- Procedural queries ("how to...")
+- And more query patterns
+
+---
+
 ## File Structure
 
 ```
@@ -782,12 +861,12 @@ radiant-rag/
 │   ├── app.py                  # RadiantRAG class + main()
 │   ├── cli.py                  # CLI wrapper
 │   ├── config.py               # Configuration loading
-│   ├── orchestrator.py         # Pipeline coordination
+│   ├── orchestrator.py         # Agentic pipeline coordination
 │   │
 │   ├── agents/                 # Pipeline agents (one per file)
 │   │   ├── __init__.py         # Package exports
 │   │   ├── base.py             # AgentContext, new_agent_context
-│   │   ├── planning.py         # PlanningAgent
+│   │   ├── planning.py         # PlanningAgent (dynamic mode selection)
 │   │   ├── decomposition.py    # QueryDecompositionAgent
 │   │   ├── rewrite.py          # QueryRewriteAgent
 │   │   ├── expansion.py        # QueryExpansionAgent
@@ -798,7 +877,9 @@ radiant-rag/
 │   │   ├── automerge.py        # HierarchicalAutoMergingAgent
 │   │   ├── rerank.py           # CrossEncoderRerankingAgent
 │   │   ├── synthesis.py        # AnswerSynthesisAgent
-│   │   ├── critic.py           # CriticAgent
+│   │   ├── critic.py           # CriticAgent (confidence scoring)
+│   │   ├── tools.py            # Tool abstraction (calculator, code)
+│   │   ├── strategy_memory.py  # Retrieval strategy learning
 │   │   └── registry.py         # Agent registry
 │   │
 │   ├── storage/                # Storage backends
@@ -830,6 +911,10 @@ radiant-rag/
 │       ├── __init__.py
 │       ├── metrics.py          # Performance tracking
 │       └── conversation.py     # Conversation history
+│
+├── data/                       # Runtime data (created automatically)
+│   ├── bm25_index.json.gz      # BM25 index
+│   └── strategy_memory.json.gz # Strategy learning data
 │
 ├── tools/                      # Diagnostic tools
 │   ├── check_redis.py          # Redis diagnostics

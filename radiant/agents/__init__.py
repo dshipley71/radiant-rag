@@ -7,6 +7,8 @@ Provides specialized agents for each stage of the RAG pipeline:
     - Fusion (RRF)
     - Post-retrieval (auto-merging, reranking)
     - Generation (answer synthesis, critique)
+    - Tools (calculator, code execution)
+    - Strategy memory (adaptive retrieval)
 """
 
 # Base context
@@ -36,6 +38,26 @@ from radiant.agents.rerank import CrossEncoderRerankingAgent
 from radiant.agents.synthesis import AnswerSynthesisAgent
 from radiant.agents.critic import CriticAgent
 
+# Tools (agentic enhancements)
+from radiant.agents.tools import (
+    BaseTool,
+    ToolType,
+    ToolResult,
+    ToolRegistry,
+    ToolSelector,
+    CalculatorTool,
+    CodeExecutionTool,
+    create_default_tool_registry,
+)
+
+# Strategy memory (agentic enhancements)
+from radiant.agents.strategy_memory import (
+    RetrievalStrategyMemory,
+    StrategyOutcome,
+    QueryPattern,
+    QueryPatternExtractor,
+)
+
 __all__ = [
     # Base
     "AgentContext",
@@ -58,4 +80,18 @@ __all__ = [
     # Generation
     "AnswerSynthesisAgent",
     "CriticAgent",
+    # Tools
+    "BaseTool",
+    "ToolType",
+    "ToolResult",
+    "ToolRegistry",
+    "ToolSelector",
+    "CalculatorTool",
+    "CodeExecutionTool",
+    "create_default_tool_registry",
+    # Strategy memory
+    "RetrievalStrategyMemory",
+    "StrategyOutcome",
+    "QueryPattern",
+    "QueryPatternExtractor",
 ]
