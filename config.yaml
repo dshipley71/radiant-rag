@@ -1,0 +1,511 @@
+# =============================================================================
+# Radiant Agentic RAG Configuration
+# =============================================================================
+# This file contains all configuration parameters with sensible defaults.
+# Environment variables can override any setting using the pattern:
+#   RADIANT_<SECTION>_<KEY> (e.g., RADIANT_OLLAMA_CHAT_MODEL)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Ollama Cloud Configuration (OpenAI-compatible API)
+# -----------------------------------------------------------------------------
+ollama:
+  # Base URL for OpenAI-compatible endpoint (REQUIRED - no default)
+  # Example: https://your-ollama-host.com/v1
+  openai_base_url: "https://ollama.com/v1"
+
+  # API key for authentication (REQUIRED - no default)
+  openai_api_key: ""
+
+  # Chat model for LLM agents
+  chat_model: "gemma3:12b-cloud"
+
+  # Request timeout in seconds
+  timeout: 90
+
+  # Maximum retries for failed requests
+  max_retries: 3
+
+  # Delay between retries (seconds)
+  retry_delay: 1.0
+
+# -----------------------------------------------------------------------------
+# Vision Language Model (VLM) for Image Captioning
+# Uses HuggingFace Transformers for local inference
+# -----------------------------------------------------------------------------
+vlm:
+  # Enable/disable VLM image captioning
+  enabled: true
+
+  # HuggingFace model name (downloaded automatically)
+  # Options:
+  #   - "Qwen/Qwen2-VL-2B-Instruct" (default, ~4GB, good balance)
+  #   - "Qwen/Qwen2-VL-7B-Instruct" (better quality, ~15GB)
+  #   - "llava-hf/llava-1.5-7b-hf" (alternative)
+  #   - "microsoft/Phi-3-vision-128k-instruct" (lightweight)
+  model_name: "Qwen/Qwen3-VL-8B-Instruct"
+
+  # Device: "auto" (recommended), "cuda", "cpu", "mps"
+  device: "auto"
+
+  # Memory-efficient quantization (requires bitsandbytes)
+  # load_in_4bit: true reduces memory by ~75% with slight quality loss
+  # load_in_8bit: true reduces memory by ~50% with minimal quality loss
+  load_in_4bit: true
+  load_in_8bit: false
+
+  # Generation parameters
+  max_new_tokens: 512
+  temperature: 0.2
+
+  # Custom cache directory for model downloads (null = HuggingFace default)
+  cache_dir: null
+
+  # Fallback to Ollama if HuggingFace not available
+  ollama_fallback_url: "http://localhost:11434"
+  ollama_fallback_model: "llava"
+
+# -----------------------------------------------------------------------------
+# Local Models Configuration (HuggingFace / sentence-transformers)
+# -----------------------------------------------------------------------------
+local_models:
+  # Embedding model for dense retrieval
+  embed_model_name: "sentence-transformers/all-MiniLM-L12-v2"
+
+  # Cross-encoder model for reranking
+  cross_encoder_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
+
+  # Device selection: "auto", "cpu", or "cuda"
+  device: "auto"
+
+  # Embedding dimension (must match embed_model_name output)
+  embedding_dimension: 384
+
+# -----------------------------------------------------------------------------
+# Redis Configuration
+# -----------------------------------------------------------------------------
+redis:
+  # Redis connection URL
+  url: "redis://localhost:6379/0"
+
+  # Key prefix for all RAG data
+  key_prefix: "radiant"
+
+  # Namespace for document content
+  doc_ns: "doc"
+
+  # Namespace for embeddings (used in vector index)
+  embed_ns: "emb"
+
+  # Namespace for metadata
+  meta_ns: "meta"
+
+  # Namespace for conversation history
+  conversation_ns: "conv"
+
+  # Maximum characters per document content
+  max_content_chars: 200000
+
+  # Vector index configuration
+  vector_index:
+    # Index name for vector search
+    name: "radiant_vectors"
+
+    # HNSW algorithm parameters
+    # M: number of bi-directional links per node (higher = better recall, more memory)
+    hnsw_m: 16
+
+    # EF_CONSTRUCTION: size of dynamic candidate list during index construction
+    hnsw_ef_construction: 200
+
+    # EF_RUNTIME: size of dynamic candidate list during search (can be overridden per query)
+    hnsw_ef_runtime: 100
+
+    # Distance metric: COSINE, L2, or IP (inner product)
+    distance_metric: "COSINE"
+
+# -----------------------------------------------------------------------------
+# BM25 Index Configuration
+# -----------------------------------------------------------------------------
+bm25:
+  # Base path for BM25 index (without extension)
+  # The index is stored as compressed JSON (.json.gz) for security and portability
+  # Legacy pickle files (.pkl) are automatically migrated on first load
+  index_path: "./data/bm25_index"
+
+  # Maximum documents to index
+  max_documents: 100000
+
+  # Auto-save after this many new documents
+  auto_save_threshold: 100
+
+  # BM25 algorithm parameters
+  k1: 1.5
+  b: 0.75
+
+# -----------------------------------------------------------------------------
+# Ingestion & Batch Processing Configuration
+# -----------------------------------------------------------------------------
+# Controls batch processing for document ingestion to improve performance
+# when indexing large document collections.
+ingestion:
+  # Enable batch processing (recommended for large corpora)
+  # When enabled, embeddings are generated in batches and Redis operations
+  # are pipelined for significantly improved throughput
+  batch_enabled: true
+
+  # Batch size for embedding generation
+  # Larger values = faster processing but more GPU/CPU memory usage
+  # Recommended: 16-64 for GPU, 8-32 for CPU
+  embedding_batch_size: 32
+
+  # Batch size for Redis pipeline operations
+  # Larger values = fewer round trips but more memory
+  # Recommended: 50-200
+  redis_batch_size: 100
+
+  # Default child chunk size for hierarchical storage (characters)
+  # Smaller chunks = more precise retrieval but more storage
+  child_chunk_size: 512
+
+  # Overlap between child chunks (characters)
+  # Helps maintain context across chunk boundaries
+  child_chunk_overlap: 50
+
+  # Show progress bar during ingestion
+  show_progress: true
+
+# -----------------------------------------------------------------------------
+# Retrieval Configuration
+# -----------------------------------------------------------------------------
+retrieval:
+  # Top-K for dense embedding retrieval
+  dense_top_k: 10
+
+  # Top-K for BM25 sparse retrieval
+  bm25_top_k: 10
+
+  # Top-K after RRF fusion
+  fused_top_k: 15
+
+  # RRF constant (higher = more weight to lower-ranked docs)
+  rrf_k: 60
+
+  # Minimum similarity score for dense retrieval (0.0 to 1.0)
+  min_similarity: 0.0
+
+# -----------------------------------------------------------------------------
+# Reranking Configuration
+# -----------------------------------------------------------------------------
+rerank:
+  # Top-K after reranking
+  top_k: 8
+
+  # Maximum characters per document for reranking input
+  max_doc_chars: 3000
+
+  # Number of candidates to consider (multiplier of top_k)
+  candidate_multiplier: 4
+
+  # Minimum candidates to consider
+  min_candidates: 16
+
+# -----------------------------------------------------------------------------
+# Auto-Merging Configuration
+# -----------------------------------------------------------------------------
+automerge:
+  # Minimum children required to merge into parent
+  min_children_to_merge: 2
+
+  # Maximum parent document length (chars) to allow merge
+  max_parent_chars: 50000
+
+# -----------------------------------------------------------------------------
+# Answer Synthesis Configuration
+# -----------------------------------------------------------------------------
+synthesis:
+  # Maximum context documents to include
+  max_context_docs: 8
+
+  # Maximum characters per context document
+  max_doc_chars: 4000
+
+  # Include conversation history in synthesis
+  include_history: true
+
+  # Maximum history turns to include
+  max_history_turns: 5
+
+# -----------------------------------------------------------------------------
+# Critic Agent Configuration
+# -----------------------------------------------------------------------------
+critic:
+  # Enable critic evaluation
+  enabled: true
+
+  # Maximum context documents for critique
+  max_context_docs: 8
+
+  # Maximum characters per document for critique
+  max_doc_chars: 1200
+
+  # Retry synthesis if critic finds issues
+  retry_on_issues: false
+
+  # Maximum retry attempts
+  max_retries: 2
+
+# -----------------------------------------------------------------------------
+# Query Processing Configuration
+# -----------------------------------------------------------------------------
+query:
+  # Maximum sub-queries from decomposition
+  max_decomposed_queries: 5
+
+  # Maximum expansion terms
+  max_expansions: 12
+
+  # Enable query caching
+  cache_enabled: false
+
+  # Cache TTL in seconds
+  cache_ttl: 3600
+
+# -----------------------------------------------------------------------------
+# Conversation History Configuration
+# -----------------------------------------------------------------------------
+conversation:
+  # Enable conversation history tracking
+  enabled: true
+
+  # Maximum turns to store per conversation
+  max_turns: 50
+
+  # TTL for conversation data (seconds, 0 = no expiry)
+  ttl: 86400
+
+  # Include history in retrieval queries
+  use_history_for_retrieval: true
+
+  # Number of recent turns to use for query context
+  history_turns_for_context: 3
+
+# -----------------------------------------------------------------------------
+# LLM Response Parsing Configuration
+# -----------------------------------------------------------------------------
+parsing:
+  # Maximum retry attempts for JSON parsing failures
+  max_retries: 2
+
+  # Delay between retries (seconds)
+  retry_delay: 0.5
+
+  # Enable strict JSON validation
+  strict_json: false
+
+  # Log parsing failures
+  log_failures: true
+
+# -----------------------------------------------------------------------------
+# Unstructured Document Cleaning Configuration
+# -----------------------------------------------------------------------------
+unstructured_cleaning:
+  enabled: true
+  bullets: false
+  extra_whitespace: true
+  dashes: false
+  trailing_punctuation: false
+  lowercase: false
+
+  # Preview settings for debugging
+  preview_enabled: false
+  preview_max_items: 12
+  preview_max_chars: 800
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Log to file (empty = console only)
+  file: ""
+
+  # Enable structured JSON logging
+  json_logging: false
+
+  # Quiet third-party library logs (huggingface, transformers, unstructured, etc.)
+  # Set to false to see all logs for debugging
+  quiet_third_party: true
+
+# -----------------------------------------------------------------------------
+# Metrics & Observability Configuration
+# -----------------------------------------------------------------------------
+metrics:
+  # Enable metrics collection
+  enabled: true
+
+  # Enable detailed step timing
+  detailed_timing: true
+
+  # Store metrics history
+  store_history: false
+
+  # Metrics history retention (number of runs)
+  history_retention: 100
+
+# -----------------------------------------------------------------------------
+# Pipeline Feature Flags
+# -----------------------------------------------------------------------------
+pipeline:
+  # Enable planning agent
+  use_planning: true
+
+  # Enable query decomposition
+  use_decomposition: true
+
+  # Enable query rewriting
+  use_rewrite: true
+
+  # Enable query expansion
+  use_expansion: true
+
+  # Enable RRF fusion
+  use_rrf: true
+
+  # Enable hierarchical auto-merging
+  use_automerge: true
+
+  # Enable cross-encoder reranking
+  use_rerank: true
+
+  # Enable critic evaluation
+  use_critic: true
+
+# -----------------------------------------------------------------------------
+# Web Crawler Configuration (for URL ingestion)
+# -----------------------------------------------------------------------------
+web_crawler:
+  # Maximum crawl depth (0 = seed URLs only, 1 = seed + direct links, etc.)
+  # Higher values crawl more pages but take longer
+  max_depth: 2
+
+  # Maximum total pages to crawl per session
+  max_pages: 100
+
+  # Only crawl pages from the same domain as seed URLs
+  # Set to false to allow cross-domain crawling
+  same_domain_only: true
+
+  # URL include patterns (regex) - URLs must match at least one pattern
+  # Leave empty to include all URLs (subject to other filters)
+  # Example: [".*\\.html$", ".*/docs/.*"]
+  include_patterns: []
+
+  # URL exclude patterns (regex) - URLs matching any pattern are skipped
+  # Common patterns to exclude: login pages, external links, etc.
+  # Example: [".*/login.*", ".*/logout.*", ".*\\?.*session.*"]
+  exclude_patterns:
+    - ".*\\.(jpg|jpeg|png|gif|svg|ico|css|js|woff|woff2|ttf|eot)$"
+    - ".*/login.*"
+    - ".*/logout.*"
+    - ".*/signin.*"
+    - ".*/signout.*"
+
+  # Request timeout in seconds
+  timeout: 30
+
+  # Delay between requests in seconds (rate limiting)
+  # Be respectful to servers - don't set this too low
+  delay: 0.5
+
+  # User agent string for HTTP requests
+  user_agent: "AgenticRAG-Crawler/1.0"
+
+  # Basic authentication credentials (leave empty if not required)
+  # For API key authentication, these can be repurposed or extended
+  basic_auth_user: ""
+  basic_auth_password: ""
+
+  # Verify SSL certificates (set to false for self-signed certs)
+  verify_ssl: true
+
+  # Temporary directory for downloaded files
+  # Leave empty to use system temp directory
+  temp_dir: ""
+
+  # Follow HTTP redirects
+  follow_redirects: true
+
+  # Maximum file size to download in bytes (0 = unlimited)
+  # Default: 50 MB
+  max_file_size: 50000000
+
+  # Respect robots.txt directives (future enhancement)
+  respect_robots_txt: true
+
+# -----------------------------------------------------------------------------
+# Web Search Configuration (Real-time during queries)
+# -----------------------------------------------------------------------------
+# Enables live web search during query processing to augment indexed content
+# with current information from the web.
+web_search:
+  # Enable/disable web search during queries
+  # When enabled, the PlanningAgent can decide to search the web
+  enabled: false
+
+  # Maximum number of URLs to consider per query
+  max_results: 5
+
+  # Maximum pages to actually fetch (may be less if some fail)
+  max_pages: 3
+
+  # Request timeout for fetching pages (seconds)
+  timeout: 15
+
+  # User agent for web requests
+  user_agent: "AgenticRAG-WebSearch/1.0"
+
+  # Include web search results in answer synthesis
+  include_in_synthesis: true
+
+  # Minimum relevance score to include a result (0.0-1.0)
+  min_relevance: 0.3
+
+  # Search mode: "direct" uses LLM to suggest URLs
+  search_mode: "direct"
+
+  # Cache web search results
+  cache_enabled: true
+
+  # Cache TTL in seconds (default 1 hour)
+  cache_ttl: 3600
+
+  # Keywords that trigger web search (if empty, rely on planner)
+  # Queries containing these words may trigger web search
+  trigger_keywords:
+    - "latest"
+    - "recent"
+    - "current"
+    - "today"
+    - "news"
+    - "update"
+    - "new"
+    - "2024"
+    - "2025"
+    - "now"
+
+  # Preferred domains for search (optional, prioritized in results)
+  preferred_domains: []
+
+  # Domains to block from web search results
+  blocked_domains:
+    - "facebook.com"
+    - "twitter.com"
+    - "instagram.com"
+    - "tiktok.com"
+    - "pinterest.com"

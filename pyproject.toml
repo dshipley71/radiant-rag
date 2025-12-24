@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radiant-rag"
+version = "1.0.0"
+description = "A modular Retrieval-Augmented Generation system with agentic query processing"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Radiant RAG Team"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["rag", "retrieval", "augmented", "generation", "llm", "agents"]
+
+dependencies = [
+    "torch>=2.0.0",
+    "sentence-transformers>=2.2.0",
+    "redis>=4.5.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "rich>=13.7.0",
+    "haystack-ai>=2.0.0",
+    "requests>=2.31.0",
+    "textual>=0.40.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+unstructured = [
+    "unstructured[all-docs]>=0.10.0",
+]
+vlm = [
+    "transformers>=4.35.0",
+    "accelerate>=0.24.0",
+    "bitsandbytes>=0.41.0",
+]
+
+[project.scripts]
+radiant = "radiant.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/radiant-rag/radiant-rag"
+Documentation = "https://github.com/radiant-rag/radiant-rag#readme"
+Repository = "https://github.com/radiant-rag/radiant-rag"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["radiant*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]

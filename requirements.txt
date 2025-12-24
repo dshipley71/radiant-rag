@@ -1,0 +1,64 @@
+# =============================================================================
+# Radiant Agentic RAG - Runtime Dependencies
+# =============================================================================
+
+# Core Framework
+haystack-ai>=2.21
+redis>=5.0.0
+pyyaml>=6.0
+pydantic>=2.6.0
+python-dotenv>=1.0.1
+
+# Document Processing
+unstructured[all-docs]>=0.15.0
+
+# Console Output
+rich>=13.7.0
+tabulate>=0.9.0
+tqdm>=4.65.0
+
+# Terminal UI (TUI)
+textual>=0.40.0
+
+# Numerical Computing
+numpy>=1.26.0
+
+# =============================================================================
+# ML/AI Dependencies
+# =============================================================================
+
+# PyTorch - Use compatible version for your CUDA setup
+# For CUDA 11.8: pip install torch --index-url https://download.pytorch.org/whl/cu118
+# For CUDA 12.1: pip install torch --index-url https://download.pytorch.org/whl/cu121
+# For CPU only: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+
+# Transformers - Requires >=4.57.0 for Qwen3-VL support
+transformers>=4.57.0
+tokenizers>=0.20.0
+accelerate>=0.34.2
+safetensors>=0.4.5
+huggingface-hub>=0.24.6
+
+# Sentence Transformers for embedding and cross-encoder
+sentence-transformers>=3.2.0
+
+# Image Processing
+pillow>=10.0.0
+
+# Qwen VL utilities (required for Qwen3-VL models)
+qwen-vl-utils>=0.0.8
+
+# HTTP client for Ollama fallback
+requests>=2.31.0
+
+# =============================================================================
+# Optional Dependencies (uncomment as needed)
+# =============================================================================
+
+# For 4-bit/8-bit quantization (reduces VRAM usage)
+# bitsandbytes>=0.41.0
+
+# For PDF OCR support in unstructured
+# pytesseract>=0.3.10
+# pdf2image>=1.16.0
