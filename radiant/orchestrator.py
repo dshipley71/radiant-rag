@@ -507,12 +507,22 @@ class RAGOrchestrator:
         retrieval_mode: str,
     ) -> None:
         """Execute retrieval phase with dynamic mode."""
-        # Dense retrieval
+        # Dense retrieval - run for each query and merge results
         if retrieval_mode in ("hybrid", "dense"):
             with metrics.track_step("DenseRetrievalAgent") as step:
                 try:
-                    ctx.dense_retrieved = self._dense_retrieval.run(queries)
+                    all_results = []
+                    seen_ids = set()
+                    for query in queries:
+                        results = self._dense_retrieval.run(query)
+                        for doc, score in results:
+                            doc_id = getattr(doc, 'doc_id', id(doc))
+                            if doc_id not in seen_ids:
+                                seen_ids.add(doc_id)
+                                all_results.append((doc, score))
+                    ctx.dense_retrieved = all_results
                     step.extra["num_retrieved"] = len(ctx.dense_retrieved)
+                    step.extra["num_queries"] = len(queries)
                     step.extra["mode"] = "active"
                 except Exception as e:
                     logger.warning(f"Dense retrieval failed: {e}")
@@ -520,18 +530,26 @@ class RAGOrchestrator:
                         raise
                     metrics.mark_degraded("dense_retrieval", str(e))
         else:
-            step_info = metrics.track_step("DenseRetrievalAgent")
-            step_info.__enter__()
-            step_info.extra["skipped"] = True
-            step_info.extra["reason"] = f"mode={retrieval_mode}"
-            step_info.__exit__(None, None, None)
+            with metrics.track_step("DenseRetrievalAgent") as step:
+                step.extra["skipped"] = True
+                step.extra["reason"] = f"mode={retrieval_mode}"
 
-        # BM25 retrieval
+        # BM25 retrieval - run for each query and merge results
         if retrieval_mode in ("hybrid", "bm25"):
             with metrics.track_step("BM25RetrievalAgent") as step:
                 try:
-                    ctx.bm25_retrieved = self._bm25_retrieval.run(queries)
+                    all_results = []
+                    seen_ids = set()
+                    for query in queries:
+                        results = self._bm25_retrieval.run(query)
+                        for doc, score in results:
+                            doc_id = getattr(doc, 'doc_id', id(doc))
+                            if doc_id not in seen_ids:
+                                seen_ids.add(doc_id)
+                                all_results.append((doc, score))
+                    ctx.bm25_retrieved = all_results
                     step.extra["num_retrieved"] = len(ctx.bm25_retrieved)
+                    step.extra["num_queries"] = len(queries)
                     step.extra["mode"] = "active"
                 except Exception as e:
                     logger.warning(f"BM25 retrieval failed: {e}")
@@ -539,11 +557,9 @@ class RAGOrchestrator:
                         raise
                     metrics.mark_degraded("bm25_retrieval", str(e))
         else:
-            step_info = metrics.track_step("BM25RetrievalAgent")
-            step_info.__enter__()
-            step_info.extra["skipped"] = True
-            step_info.extra["reason"] = f"mode={retrieval_mode}"
-            step_info.__exit__(None, None, None)
+            with metrics.track_step("BM25RetrievalAgent") as step:
+                step.extra["skipped"] = True
+                step.extra["reason"] = f"mode={retrieval_mode}"
 
         # Web search (if enabled and requested by plan)
         if self._web_search_agent and plan.get("use_web_search", False):
