@@ -42,10 +42,10 @@ from rich.panel import Panel
 from rich import box
 
 if TYPE_CHECKING:
-    from app import RadiantRAG
-    from orchestrator import PipelineResult
-    from metrics import RunMetrics, StepMetric
-    from rag_agents import AgentContext
+    from radiant.app import RadiantRAG
+    from radiant.orchestrator import PipelineResult
+    from radiant.utils.metrics import RunMetrics, StepMetric
+    from radiant.agents import AgentContext
 
 logger = logging.getLogger(__name__)
 

@@ -23,7 +23,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 if TYPE_CHECKING:
-    from config import WebCrawlerConfig
+    from radiant.config import WebCrawlerConfig
 
 logger = logging.getLogger(__name__)
 

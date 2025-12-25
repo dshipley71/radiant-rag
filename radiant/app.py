@@ -751,7 +751,7 @@ class RadiantRAG:
         Returns:
             List of (StoredDoc, score) tuples
         """
-        from rag_agents import DenseRetrievalAgent, BM25RetrievalAgent, RRFAgent
+        from radiant.agents import DenseRetrievalAgent, BM25RetrievalAgent, RRFAgent
         
         results: List[Tuple["StoredDoc", float]] = []
         dense_results: List[Tuple["StoredDoc", float]] = []
