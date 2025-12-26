@@ -12,6 +12,11 @@ Provides specialized agents for each stage of the RAG pipeline:
     - Intelligent chunking (semantic document chunking)
     - Summarization (context compression)
     - Context evaluation (pre-generation quality gate)
+    - Multi-hop reasoning (complex inference chains)
+    - Fact verification (per-claim grounding)
+    - Citation tracking (enterprise compliance)
+    - Language detection (multilingual support)
+    - Translation (canonical language indexing)
 """
 
 # Base context
@@ -106,6 +111,19 @@ from radiant.agents.citation import (
     CitationStyle,
 )
 
+# Language detection (new)
+from radiant.agents.language_detection import (
+    LanguageDetectionAgent,
+    LanguageDetection,
+)
+
+# Translation (new)
+from radiant.agents.translation import (
+    TranslationAgent,
+    TranslationResult,
+    TranslationError,
+)
+
 __all__ = [
     # Base
     "AgentContext",
@@ -169,4 +187,11 @@ __all__ = [
     "Citation",
     "SourceDocument",
     "CitationStyle",
+    # Language detection
+    "LanguageDetectionAgent",
+    "LanguageDetection",
+    # Translation
+    "TranslationAgent",
+    "TranslationResult",
+    "TranslationError",
 ]

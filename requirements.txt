@@ -9,6 +9,9 @@ pyyaml>=6.0
 pydantic>=2.6.0
 python-dotenv>=1.0.1
 
+# Language Detection
+fast-langdetect>=0.2.0
+
 # Document Processing
 unstructured[all-docs]>=0.15.0
 

@@ -20,9 +20,15 @@ from radiant.storage.redis_store import RedisVectorStore
 from radiant.storage.bm25_index import PersistentBM25Index
 from radiant.utils.conversation import ConversationManager, ConversationStore
 from radiant.llm.client import LLMClients
-from radiant.ingestion.processor import DocumentProcessor, IngestedChunk
+from radiant.ingestion.processor import (
+    DocumentProcessor,
+    IngestedChunk,
+    TranslatingDocumentProcessor,
+)
 from radiant.orchestrator import PipelineResult, RAGOrchestrator, SimplifiedOrchestrator
 from radiant.ingestion.image_captioner import ImageCaptioner, VLMConfig, create_captioner
+from radiant.agents.language_detection import LanguageDetectionAgent
+from radiant.agents.translation import TranslationAgent
 from radiant.ui.display import (
     console,
     display_error,
@@ -125,10 +131,53 @@ class RadiantRAG:
         )
         
         # Document processor
-        self._doc_processor = DocumentProcessor(
+        self._base_doc_processor = DocumentProcessor(
             self._config.unstructured_cleaning,
             image_captioner=self._image_captioner,
         )
+        
+        # Initialize language detection and translation agents if enabled
+        self._lang_detection_agent = None
+        self._translation_agent = None
+        
+        if self._config.language_detection.enabled:
+            self._lang_detection_agent = LanguageDetectionAgent(
+                llm=self._llm_clients.chat if self._config.language_detection.use_llm_fallback else None,
+                method=self._config.language_detection.method,
+                min_confidence=self._config.language_detection.min_confidence,
+                use_llm_fallback=self._config.language_detection.use_llm_fallback,
+                fallback_language=self._config.language_detection.fallback_language,
+            )
+            logger.info(
+                f"Language detection enabled (method={self._config.language_detection.method})"
+            )
+        
+        if self._config.translation.enabled:
+            self._translation_agent = TranslationAgent(
+                llm=self._llm_clients.chat,
+                canonical_language=self._config.translation.canonical_language,
+                max_chars_per_call=self._config.translation.max_chars_per_llm_call,
+                preserve_original=self._config.translation.preserve_original,
+            )
+            logger.info(
+                f"Translation enabled (canonical_language={self._config.translation.canonical_language})"
+            )
+        
+        # Create translating processor if both agents are available
+        if (self._config.translation.translate_at_ingestion and 
+            self._lang_detection_agent is not None and 
+            self._translation_agent is not None):
+            self._doc_processor = TranslatingDocumentProcessor(
+                base_processor=self._base_doc_processor,
+                language_detection_agent=self._lang_detection_agent,
+                translation_agent=self._translation_agent,
+                canonical_language=self._config.translation.canonical_language,
+                translate_at_ingestion=True,
+                preserve_original=self._config.translation.preserve_original,
+            )
+            logger.info("Using TranslatingDocumentProcessor for ingestion")
+        else:
+            self._doc_processor = self._base_doc_processor
 
         # Metrics collector
         self._metrics_collector = MetricsCollector(

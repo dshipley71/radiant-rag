@@ -742,3 +742,250 @@ class IntelligentDocumentProcessor(DocumentProcessor):
             return None  # Let chunking agent detect
         else:
             return "prose"
+
+
+class TranslatingDocumentProcessor:
+    """
+    Document processor with language detection and translation support.
+    
+    Wraps an existing document processor and adds:
+    - Language detection for each document
+    - Translation to canonical language (e.g., English) for indexing
+    - Preservation of original text in metadata
+    
+    This enables multilingual document corpora to be indexed and searched
+    in a single canonical language while retaining original content.
+    """
+    
+    def __init__(
+        self,
+        base_processor: DocumentProcessor,
+        language_detection_agent: Optional[Any] = None,
+        translation_agent: Optional[Any] = None,
+        canonical_language: str = "en",
+        translate_at_ingestion: bool = True,
+        preserve_original: bool = True,
+    ) -> None:
+        """
+        Initialize translating document processor.
+        
+        Args:
+            base_processor: Base document processor (DocumentProcessor or IntelligentDocumentProcessor)
+            language_detection_agent: LanguageDetectionAgent instance
+            translation_agent: TranslationAgent instance
+            canonical_language: Target language for indexing (default: "en")
+            translate_at_ingestion: Whether to translate during ingestion
+            preserve_original: Whether to store original text in metadata
+        """
+        self._base_processor = base_processor
+        self._lang_detector = language_detection_agent
+        self._translator = translation_agent
+        self._canonical_language = canonical_language
+        self._translate_at_ingestion = translate_at_ingestion
+        self._preserve_original = preserve_original
+        
+        # Track if translation is available
+        self._translation_enabled = (
+            translate_at_ingestion and 
+            language_detection_agent is not None and 
+            translation_agent is not None
+        )
+        
+        if self._translation_enabled:
+            logger.info(
+                f"Translation enabled: documents will be translated to "
+                f"'{canonical_language}' for indexing"
+            )
+    
+    def process_file(
+        self,
+        file_path: str,
+        split_large_chunks: bool = False,
+        max_chunk_size: int = 2000,
+        preview_sink: Optional[List[CleaningPreview]] = None,
+    ) -> List[IngestedChunk]:
+        """
+        Process a single file with optional translation.
+        
+        Args:
+            file_path: Path to file
+            split_large_chunks: Whether to split large chunks
+            max_chunk_size: Maximum chunk size before splitting
+            preview_sink: Optional list for cleaning previews
+            
+        Returns:
+            List of processed chunks with language metadata
+        """
+        # Get chunks from base processor
+        chunks = self._base_processor.process_file(
+            file_path, split_large_chunks, max_chunk_size, preview_sink
+        )
+        
+        if not chunks:
+            return chunks
+        
+        # If translation not enabled, return chunks as-is
+        if not self._translation_enabled:
+            return chunks
+        
+        # Detect document language from combined content
+        # Use first few chunks to determine document language
+        sample_content = " ".join(
+            chunk.content[:1000] for chunk in chunks[:3]
+        )
+        
+        doc_language = self._detect_document_language(sample_content)
+        
+        # Check if translation is needed
+        if self._is_canonical_language(doc_language.language_code):
+            # Document is already in canonical language
+            logger.debug(
+                f"Document {file_path} is in canonical language "
+                f"({doc_language.language_code}), no translation needed"
+            )
+            return self._add_language_metadata(chunks, doc_language, translated=False)
+        
+        # Translate chunks
+        logger.info(
+            f"Translating document {file_path} from {doc_language.language_name} "
+            f"to {self._canonical_language}"
+        )
+        
+        return self._translate_chunks(chunks, doc_language)
+    
+    def _detect_document_language(self, content: str) -> Any:
+        """Detect language of document content."""
+        return self._lang_detector.detect_document(content)
+    
+    def _is_canonical_language(self, language_code: str) -> bool:
+        """Check if language matches canonical language."""
+        return language_code.lower() == self._canonical_language.lower()
+    
+    def _add_language_metadata(
+        self,
+        chunks: List[IngestedChunk],
+        detection: Any,
+        translated: bool = False,
+    ) -> List[IngestedChunk]:
+        """Add language metadata to chunks without translation."""
+        result = []
+        for chunk in chunks:
+            meta = {
+                **chunk.meta,
+                "language_code": detection.language_code,
+                "language_name": detection.language_name,
+                "language_confidence": detection.confidence,
+                "language_detection_method": detection.method,
+                "was_translated": translated,
+                "canonical_language": self._canonical_language,
+            }
+            result.append(IngestedChunk(content=chunk.content, meta=meta))
+        return result
+    
+    def _translate_chunks(
+        self,
+        chunks: List[IngestedChunk],
+        source_language: Any,
+    ) -> List[IngestedChunk]:
+        """Translate chunks to canonical language."""
+        result = []
+        
+        for chunk in chunks:
+            try:
+                # Translate chunk content
+                translation_result = self._translator.translate(
+                    text=chunk.content,
+                    target_language=self._canonical_language,
+                    source_language=source_language.language_code,
+                )
+                
+                # Build metadata with language information
+                meta = {
+                    **chunk.meta,
+                    # Language detection info
+                    "language_code": source_language.language_code,
+                    "language_name": source_language.language_name,
+                    "language_confidence": source_language.confidence,
+                    "language_detection_method": source_language.method,
+                    # Translation info
+                    "was_translated": translation_result.was_translated,
+                    "canonical_language": self._canonical_language,
+                    "translation_method": translation_result.method,
+                }
+                
+                # Preserve original text if configured
+                if self._preserve_original and translation_result.was_translated:
+                    meta["original_content"] = chunk.content
+                    meta["original_language"] = source_language.language_code
+                
+                # Use translated content
+                result.append(IngestedChunk(
+                    content=translation_result.translated_text,
+                    meta=meta,
+                ))
+                
+            except Exception as e:
+                logger.warning(
+                    f"Translation failed for chunk, keeping original: {e}"
+                )
+                # Keep original on failure with metadata
+                meta = {
+                    **chunk.meta,
+                    "language_code": source_language.language_code,
+                    "language_name": source_language.language_name,
+                    "was_translated": False,
+                    "translation_error": str(e),
+                    "canonical_language": self._canonical_language,
+                }
+                result.append(IngestedChunk(content=chunk.content, meta=meta))
+        
+        translated_count = sum(
+            1 for c in result if c.meta.get("was_translated", False)
+        )
+        logger.info(
+            f"Translated {translated_count}/{len(chunks)} chunks from "
+            f"{source_language.language_name} to {self._canonical_language}"
+        )
+        
+        return result
+    
+    def process_batch(
+        self,
+        file_paths: List[str],
+        split_large_chunks: bool = False,
+        max_chunk_size: int = 2000,
+    ) -> List[IngestedChunk]:
+        """
+        Process multiple files with translation.
+        
+        Args:
+            file_paths: List of file paths
+            split_large_chunks: Whether to split large chunks
+            max_chunk_size: Maximum chunk size before splitting
+            
+        Returns:
+            List of all processed chunks from all files
+        """
+        all_chunks: List[IngestedChunk] = []
+        
+        for file_path in file_paths:
+            try:
+                chunks = self.process_file(
+                    file_path, split_large_chunks, max_chunk_size
+                )
+                all_chunks.extend(chunks)
+            except Exception as e:
+                logger.error(f"Failed to process {file_path}: {e}")
+        
+        return all_chunks
+    
+    @property
+    def translation_enabled(self) -> bool:
+        """Check if translation is enabled."""
+        return self._translation_enabled
+    
+    @property
+    def canonical_language(self) -> str:
+        """Get the canonical language code."""
+        return self._canonical_language
+

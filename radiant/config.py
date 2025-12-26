@@ -461,6 +461,56 @@ class CitationConfig:
 
 
 @dataclass(frozen=True)
+class LanguageDetectionConfig:
+    """Language detection agent configuration."""
+    
+    # Enable language detection
+    enabled: bool = True
+    
+    # Detection method: "fast" (fast-langdetect), "llm", "auto"
+    method: str = "fast"
+    
+    # Minimum confidence threshold for fast-langdetect
+    min_confidence: float = 0.7
+    
+    # Use LLM fallback for low-confidence detections
+    use_llm_fallback: bool = True
+    
+    # Default language if detection fails
+    fallback_language: str = "en"
+
+
+@dataclass(frozen=True)
+class TranslationConfig:
+    """Translation agent configuration."""
+    
+    # Enable translation
+    enabled: bool = True
+    
+    # Translation method: "llm", "google", "deepl"
+    method: str = "llm"
+    
+    # Canonical language for indexing (target language)
+    canonical_language: str = "en"
+    
+    # Maximum characters per LLM translation call
+    max_chars_per_llm_call: int = 4000
+    
+    # Translate documents at ingestion time
+    translate_at_ingestion: bool = True
+    
+    # Translate retrieved docs at query time (fallback)
+    translate_at_query: bool = False
+    
+    # Preserve original text in metadata
+    preserve_original: bool = True
+    
+    # API keys for external services (if method != "llm")
+    google_api_key: str = ""
+    deepl_api_key: str = ""
+
+
+@dataclass(frozen=True)
 class QueryConfig:
     """Query processing configuration."""
     max_decomposed_queries: int = 5
@@ -653,6 +703,8 @@ class AppConfig:
     multihop: MultiHopConfig
     fact_verification: FactVerificationConfig
     citation: CitationConfig
+    language_detection: LanguageDetectionConfig
+    translation: TranslationConfig
     query: QueryConfig
     conversation: ConversationConfig
     parsing: ParsingConfig
@@ -913,6 +965,26 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         generate_audit_trail=_get_config_value(data, "citation", "generate_audit_trail", True, _parse_bool),
     )
 
+    language_detection = LanguageDetectionConfig(
+        enabled=_get_config_value(data, "language_detection", "enabled", True, _parse_bool),
+        method=_get_config_value(data, "language_detection", "method", "fast"),
+        min_confidence=_get_config_value(data, "language_detection", "min_confidence", 0.7, _parse_float),
+        use_llm_fallback=_get_config_value(data, "language_detection", "use_llm_fallback", True, _parse_bool),
+        fallback_language=_get_config_value(data, "language_detection", "fallback_language", "en"),
+    )
+
+    translation = TranslationConfig(
+        enabled=_get_config_value(data, "translation", "enabled", True, _parse_bool),
+        method=_get_config_value(data, "translation", "method", "llm"),
+        canonical_language=_get_config_value(data, "translation", "canonical_language", "en"),
+        max_chars_per_llm_call=_get_config_value(data, "translation", "max_chars_per_llm_call", 4000, _parse_int),
+        translate_at_ingestion=_get_config_value(data, "translation", "translate_at_ingestion", True, _parse_bool),
+        translate_at_query=_get_config_value(data, "translation", "translate_at_query", False, _parse_bool),
+        preserve_original=_get_config_value(data, "translation", "preserve_original", True, _parse_bool),
+        google_api_key=_get_config_value(data, "translation", "google_api_key", ""),
+        deepl_api_key=_get_config_value(data, "translation", "deepl_api_key", ""),
+    )
+
     query = QueryConfig(
         max_decomposed_queries=_get_config_value(data, "query", "max_decomposed_queries", 5, _parse_int),
         max_expansions=_get_config_value(data, "query", "max_expansions", 12, _parse_int),
@@ -1053,6 +1125,8 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         multihop=multihop,
         fact_verification=fact_verification,
         citation=citation,
+        language_detection=language_detection,
+        translation=translation,
         query=query,
         conversation=conversation,
         parsing=parsing,

@@ -983,6 +983,68 @@ The citation agent provides:
 - Comprehensive audit trail for compliance
 - Audit report generation with full provenance
 
+### Language Detection
+
+Automatic language detection for multilingual document corpora:
+
+```yaml
+language_detection:
+  enabled: true
+  method: "fast"           # "fast" (FastText), "llm", "auto"
+  min_confidence: 0.7      # Threshold for fast-langdetect
+  use_llm_fallback: true   # Use LLM for low-confidence cases
+  fallback_language: "en"  # Default if detection fails
+```
+
+The language detection agent:
+- Uses Facebook's FastText model via `fast-langdetect` (176 languages, ~0.1ms per detection)
+- Falls back to LLM for ambiguous or low-confidence cases
+- Supports batch detection for efficient processing
+- Provides confidence scores and detection method metadata
+
+### Translation
+
+Automatic translation to canonical language for multilingual indexing:
+
+```yaml
+translation:
+  enabled: true
+  method: "llm"                    # Uses existing LLMClient
+  canonical_language: "en"         # Target language for indexing
+  max_chars_per_llm_call: 4000     # Chunk size for long documents
+  translate_at_ingestion: true     # Translate during document ingestion
+  translate_at_query: false        # Optional query-time translation
+  preserve_original: true          # Store original text in metadata
+```
+
+The translation agent:
+- High-quality LLM-based translation
+- Automatic chunking for long documents (at paragraph boundaries)
+- Preserves formatting (paragraphs, lists, code blocks)
+- Stores both original and translated content
+- Supports 50+ language pairs
+
+**Multilingual Workflow:**
+```
+Document (Any Language)
+    ↓
+LanguageDetectionAgent → detect source language
+    ↓
+If not canonical language:
+    TranslationAgent → translate to English (canonical)
+    ↓
+Store: translated content + original in metadata
+    ↓
+Index with English embeddings
+```
+
+**Metadata stored per chunk:**
+- `language_code`: Original language ISO code (e.g., "zh", "fr")
+- `language_name`: Human-readable language name
+- `was_translated`: Boolean indicating if translation occurred
+- `original_content`: Original text (if `preserve_original: true`)
+- `translation_method`: Method used ("llm", "llm_chunked")
+
 ---
 
 ## File Structure
@@ -1023,9 +1085,11 @@ radiant-rag/
 │   │   ├── chunking.py         # IntelligentChunkingAgent
 │   │   ├── summarization.py    # SummarizationAgent
 │   │   ├── context_eval.py     # ContextEvaluationAgent
-│   │   ├── multihop.py         # MultiHopReasoningAgent (NEW)
-│   │   ├── fact_verification.py # FactVerificationAgent (NEW)
-│   │   ├── citation.py         # CitationTrackingAgent (NEW)
+│   │   ├── multihop.py         # MultiHopReasoningAgent
+│   │   ├── fact_verification.py # FactVerificationAgent
+│   │   ├── citation.py         # CitationTrackingAgent
+│   │   ├── language_detection.py # LanguageDetectionAgent (NEW)
+│   │   ├── translation.py      # TranslationAgent (NEW)
 │   │   └── registry.py         # Agent registry
 │   │
 │   ├── storage/                # Storage backends
@@ -1035,7 +1099,7 @@ radiant-rag/
 │   │
 │   ├── ingestion/              # Document processing
 │   │   ├── __init__.py
-│   │   ├── processor.py        # DocumentProcessor, IntelligentDocumentProcessor
+│   │   ├── processor.py        # DocumentProcessor, TranslatingDocumentProcessor
 │   │   ├── web_crawler.py      # URL crawling
 │   │   └── image_captioner.py  # VLM captioning
 │   │

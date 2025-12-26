@@ -463,6 +463,66 @@ citation:
   generate_audit_trail: true
 
 # -----------------------------------------------------------------------------
+# Language Detection Configuration
+# Detects the language of documents and text for translation
+# -----------------------------------------------------------------------------
+language_detection:
+  # Enable language detection
+  enabled: true
+
+  # Detection method: "fast" (fast-langdetect), "llm", "auto"
+  # - fast: Uses Facebook's FastText model (fastest, 176 languages)
+  # - llm: Uses LLM for detection (slower but handles edge cases)
+  # - auto: Tries fast first, falls back to llm if needed
+  method: "fast"
+
+  # Minimum confidence threshold for fast-langdetect (0-1)
+  # Below this threshold, LLM fallback will be used if enabled
+  min_confidence: 0.7
+
+  # Use LLM fallback for low-confidence detections
+  use_llm_fallback: true
+
+  # Default language if detection fails
+  fallback_language: "en"
+
+# -----------------------------------------------------------------------------
+# Translation Configuration
+# Translates documents to canonical language for indexing
+# -----------------------------------------------------------------------------
+translation:
+  # Enable translation
+  enabled: true
+
+  # Translation method: "llm", "google", "deepl"
+  # Currently only "llm" is implemented (uses existing LLMClient)
+  method: "llm"
+
+  # Canonical language for indexing (target language)
+  # All documents will be translated to this language for indexing
+  canonical_language: "en"
+
+  # Maximum characters per LLM translation call
+  # Longer documents will be chunked at paragraph boundaries
+  max_chars_per_llm_call: 4000
+
+  # Translate documents at ingestion time
+  # When true, documents are translated before indexing
+  translate_at_ingestion: true
+
+  # Translate retrieved docs at query time (fallback)
+  # When true, non-canonical documents are translated on retrieval
+  translate_at_query: false
+
+  # Preserve original text in metadata
+  # When true, original text is stored alongside translated text
+  preserve_original: true
+
+  # API keys for external translation services (if method != "llm")
+  google_api_key: ""
+  deepl_api_key: ""
+
+# -----------------------------------------------------------------------------
 # Query Processing Configuration
 # -----------------------------------------------------------------------------
 query:
