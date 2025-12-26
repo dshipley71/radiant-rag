@@ -13,8 +13,11 @@ import json
 import sys
 from pathlib import Path
 
+# Add parent directory to path for radiant imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # Add current directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# sys.path.insert(0, str(Path(__file__).parent))
 
 from radiant.config import load_config
 from radiant.storage.redis_store import RedisVectorStore
