@@ -380,14 +380,14 @@ The Textual TUI provides a rich terminal interface with:
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────┐   ┌─────────────────────────────────────────┐   │
-│  │ Run Timeline / Trace    │   │ Answer & Citations                      │   │
+│  │ Run Timeline / Trace   │   │ Answer & Citations                      │   │
 │  │─────────────────────────│   │─────────────────────────────────────────│   │
-│  │ ● Planning         12ms │   │                                         │   │
-│  │ ● Query Decomp     45ms │   │ The answer to your question is...       │   │
-│  │ ● Dense Retrieval 210ms │   │                                         │   │
-│  │ ● BM25 Retrieval   85ms │   │ Citations:                              │   │
-│  │ ● Reranking       120ms │   │ [doc1] [doc2] [doc3]                    │   │
-│  │ ● Generation      450ms │   │                                         │   │
+│  │ ● Planning         12ms│   │                                         │   │
+│  │ ● Query Decomp     45ms│   │ The answer to your question is...      │   │
+│  │ ● Dense Retrieval 210ms│   │                                         │   │
+│  │ ● BM25 Retrieval   85ms│   │ Citations:                              │   │
+│  │ ● Reranking       120ms│   │ [doc1] [doc2] [doc3]                    │   │
+│  │ ● Generation      450ms│   │                                         │   │
 │  └─────────────────────────┘   └─────────────────────────────────────────┘   │
 │                                                                              │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -897,6 +897,92 @@ Summarization activates conditionally when:
 - Multiple highly-similar documents are retrieved
 - Total context exceeds configured limits
 
+### Multi-hop Reasoning
+
+Handles complex queries that require multiple retrieval steps and inference chains:
+
+```yaml
+multihop:
+  enabled: true
+  max_hops: 3                      # Maximum reasoning steps
+  docs_per_hop: 5                  # Documents to retrieve per step
+  min_confidence_to_continue: 0.3  # Stop if confidence drops
+  enable_entity_extraction: true   # Extract entities for follow-up
+```
+
+Multi-hop reasoning automatically activates for:
+- Bridge questions: "Who is the CEO of the company that made X?"
+- Comparison questions: "Which is larger, A or B?"
+- Temporal chains: "What happened after event X?"
+- Compositional questions requiring multiple facts
+
+The agent:
+1. Analyzes query to determine if multi-hop is needed
+2. Decomposes into sequential sub-questions
+3. Executes retrieval for each sub-question
+4. Extracts intermediate answers
+5. Uses intermediate answers to formulate next sub-question
+6. Combines all retrieved context for final synthesis
+
+### Fact Verification
+
+Verifies each claim in generated answers against retrieved context to prevent hallucinations:
+
+```yaml
+fact_verification:
+  enabled: true
+  min_support_confidence: 0.6  # Minimum confidence for support
+  max_claims_to_verify: 20     # Limit for efficiency
+  generate_corrections: true   # Auto-correct problematic claims
+  strict_mode: false           # Require explicit (vs inferred) support
+  block_on_failure: false      # Block answers that fail verification
+```
+
+The fact verification agent:
+- Extracts individual claims from generated answers
+- Cross-checks each claim against retrieved context
+- Classifies support level (supported, partially supported, contradicted)
+- Calculates overall factuality score
+- Optionally generates corrected answers
+- Provides detailed verification reports
+
+Verification statuses:
+- **Supported**: Claim directly supported by context
+- **Partially Supported**: Some aspects supported
+- **Not Supported**: Claim not addressed (but not contradicted)
+- **Contradicted**: Context explicitly contradicts the claim
+- **Unverifiable**: Cannot determine from context
+
+### Citation Tracking
+
+Adds source references to answers for enterprise compliance and auditability:
+
+```yaml
+citation:
+  enabled: true
+  citation_style: "inline"     # inline, footnote, academic, enterprise
+  min_citation_confidence: 0.5
+  max_citations_per_claim: 3
+  include_excerpts: true       # Include supporting quotes
+  generate_bibliography: true  # Add references section
+  generate_audit_trail: true   # Generate audit logs
+```
+
+Citation styles:
+- **inline**: `[1], [2]` markers (default)
+- **footnote**: Superscript-style references
+- **academic**: `Author (Year)` format
+- **hyperlink**: `[Source](url)` format
+- **enterprise**: Document ID + timestamp for compliance
+
+The citation agent provides:
+- Automatic citation insertion into answers
+- Source document metadata tracking
+- Supporting excerpt extraction
+- Bibliography/references generation
+- Comprehensive audit trail for compliance
+- Audit report generation with full provenance
+
 ---
 
 ## File Structure
@@ -934,9 +1020,12 @@ radiant-rag/
 │   │   ├── critic.py           # CriticAgent (confidence scoring)
 │   │   ├── tools.py            # Tool abstraction (calculator, code)
 │   │   ├── strategy_memory.py  # Retrieval strategy learning
-│   │   ├── chunking.py         # IntelligentChunkingAgent (NEW)
-│   │   ├── summarization.py    # SummarizationAgent (NEW)
-│   │   ├── context_eval.py     # ContextEvaluationAgent (NEW)
+│   │   ├── chunking.py         # IntelligentChunkingAgent
+│   │   ├── summarization.py    # SummarizationAgent
+│   │   ├── context_eval.py     # ContextEvaluationAgent
+│   │   ├── multihop.py         # MultiHopReasoningAgent (NEW)
+│   │   ├── fact_verification.py # FactVerificationAgent (NEW)
+│   │   ├── citation.py         # CitationTrackingAgent (NEW)
 │   │   └── registry.py         # Agent registry
 │   │
 │   ├── storage/                # Storage backends

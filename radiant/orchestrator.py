@@ -39,9 +39,14 @@ from radiant.agents import (
     RRFAgent,
     WebSearchAgent,
     new_agent_context,
-    # New agents
+    # Evaluation agents
     ContextEvaluationAgent,
     SummarizationAgent,
+    # New agents
+    MultiHopReasoningAgent,
+    FactVerificationAgent,
+    CitationTrackingAgent,
+    CitationStyle,
 )
 from radiant.agents.tools import (
     ToolRegistry,
@@ -85,6 +90,20 @@ class PipelineResult:
     retry_count: int = 0
     tools_used: List[str] = field(default_factory=list)
     low_confidence: bool = False
+    
+    # Multi-hop reasoning
+    multihop_used: bool = False
+    multihop_hops: int = 0
+    
+    # Fact verification
+    fact_verification_score: float = 1.0
+    fact_verification_passed: bool = True
+    
+    # Citation tracking
+    cited_answer: Optional[str] = None
+    citations: List[Dict[str, Any]] = field(default_factory=list)
+    sources: List[Dict[str, Any]] = field(default_factory=list)
+    audit_id: Optional[str] = None
 
     @property
     def run_id(self) -> str:
@@ -108,6 +127,17 @@ class PipelineResult:
             "retry_count": self.retry_count,
             "tools_used": self.tools_used,
             "low_confidence": self.low_confidence,
+            # Multi-hop
+            "multihop_used": self.multihop_used,
+            "multihop_hops": self.multihop_hops,
+            # Fact verification
+            "fact_verification_score": self.fact_verification_score,
+            "fact_verification_passed": self.fact_verification_passed,
+            # Citation
+            "cited_answer": self.cited_answer,
+            "citations": self.citations,
+            "num_sources": len(self.sources),
+            "audit_id": self.audit_id,
         }
 
 
@@ -216,13 +246,64 @@ class RAGOrchestrator:
                 max_cluster_size=config.summarization.max_cluster_size,
             )
 
+        # Initialize multi-hop reasoning agent
+        self._multihop_agent: Optional[MultiHopReasoningAgent] = None
+        if config.multihop.enabled:
+            self._multihop_agent = MultiHopReasoningAgent(
+                llm=llm,
+                store=store,
+                local_models=local,
+                max_hops=config.multihop.max_hops,
+                docs_per_hop=config.multihop.docs_per_hop,
+                min_confidence_to_continue=config.multihop.min_confidence_to_continue,
+                enable_entity_extraction=config.multihop.enable_entity_extraction,
+            )
+
+        # Initialize fact verification agent
+        self._fact_verification_agent: Optional[FactVerificationAgent] = None
+        if config.fact_verification.enabled:
+            self._fact_verification_agent = FactVerificationAgent(
+                llm=llm,
+                min_support_confidence=config.fact_verification.min_support_confidence,
+                max_claims_to_verify=config.fact_verification.max_claims_to_verify,
+                generate_corrections=config.fact_verification.generate_corrections,
+                strict_mode=config.fact_verification.strict_mode,
+            )
+
+        # Initialize citation tracking agent
+        self._citation_agent: Optional[CitationTrackingAgent] = None
+        if config.citation.enabled:
+            # Map citation style string to enum
+            style_map = {
+                "inline": CitationStyle.INLINE,
+                "footnote": CitationStyle.FOOTNOTE,
+                "academic": CitationStyle.ACADEMIC,
+                "hyperlink": CitationStyle.HYPERLINK,
+                "enterprise": CitationStyle.ENTERPRISE,
+            }
+            citation_style = style_map.get(
+                config.citation.citation_style.lower(),
+                CitationStyle.INLINE
+            )
+            self._citation_agent = CitationTrackingAgent(
+                llm=llm,
+                citation_style=citation_style,
+                min_citation_confidence=config.citation.min_citation_confidence,
+                max_citations_per_claim=config.citation.max_citations_per_claim,
+                include_excerpts=config.citation.include_excerpts,
+                excerpt_max_length=config.citation.excerpt_max_length,
+            )
+
         logger.info(
             f"Agentic RAG orchestrator initialized "
             f"(web_search={'enabled' if config.web_search.enabled else 'disabled'}, "
             f"tools={'enabled' if config.agentic.tools_enabled else 'disabled'}, "
             f"strategy_memory={'enabled' if config.agentic.strategy_memory_enabled else 'disabled'}, "
             f"context_eval={'enabled' if config.context_evaluation.enabled else 'disabled'}, "
-            f"summarization={'enabled' if config.summarization.enabled else 'disabled'})"
+            f"summarization={'enabled' if config.summarization.enabled else 'disabled'}, "
+            f"multihop={'enabled' if config.multihop.enabled else 'disabled'}, "
+            f"fact_verification={'enabled' if config.fact_verification.enabled else 'disabled'}, "
+            f"citation={'enabled' if config.citation.enabled else 'disabled'})"
         )
 
     def run(
@@ -379,6 +460,37 @@ class RAGOrchestrator:
                     critic_ok=not ctx.low_confidence_response,
                 )
 
+            # Phase 8: Fact Verification (post-generation)
+            fact_result = self._run_fact_verification(ctx, metrics, answer)
+            fact_score = fact_result.overall_score if fact_result else 1.0
+            fact_passed = fact_result.is_factual if fact_result else True
+            
+            # Use corrected answer if available and fact verification suggests it
+            if fact_result and fact_result.corrected_answer and fact_result.needs_correction:
+                logger.info(f"[{ctx.run_id}] Using fact-corrected answer")
+                answer = fact_result.corrected_answer
+                ctx.final_answer = answer
+                ctx.add_warning("Answer was corrected based on fact verification")
+
+            # Phase 9: Citation Tracking
+            citation_result = self._run_citation_tracking(ctx, metrics, answer)
+            cited_answer = None
+            citations_list = []
+            sources_list = []
+            audit_id = None
+            
+            if citation_result:
+                cited_answer = citation_result.cited_answer
+                citations_list = [c.to_dict() for c in citation_result.citations]
+                sources_list = [s.to_dict() for s in citation_result.sources]
+                audit_id = citation_result.audit_id
+                
+                # If bibliography is enabled, append to answer
+                if self._config.citation.generate_bibliography and citation_result.sources:
+                    bibliography = citation_result.get_bibliography()
+                    answer = f"{answer}\n\n{bibliography}"
+                    ctx.final_answer = answer
+
             # Record conversation turn
             if self._conversation and conversation_id:
                 self._conversation.add_user_query(query)
@@ -400,6 +512,17 @@ class RAGOrchestrator:
                 retry_count=ctx.retry_count,
                 tools_used=[r.get("tool_name", "") for r in ctx.tool_results],
                 low_confidence=ctx.low_confidence_response,
+                # Multi-hop
+                multihop_used=getattr(ctx, 'multihop_used', False),
+                multihop_hops=getattr(ctx, 'multihop_hops', 0),
+                # Fact verification
+                fact_verification_score=fact_score,
+                fact_verification_passed=fact_passed,
+                # Citation
+                cited_answer=cited_answer,
+                citations=citations_list,
+                sources=sources_list,
+                audit_id=audit_id,
             )
 
         except Exception as e:
@@ -638,6 +761,10 @@ class RAGOrchestrator:
 
         # RRF Fusion - combine all retrieval sources
         self._fuse_results(ctx, metrics, plan, retrieval_mode)
+        
+        # Multi-hop reasoning (if enabled and needed)
+        if self._multihop_agent:
+            self._run_multihop_reasoning(ctx, metrics)
 
     def _fuse_results(
         self,
@@ -945,6 +1072,208 @@ class RAGOrchestrator:
         )
         
         return ctx.final_answer
+
+    def _run_multihop_reasoning(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+    ) -> Optional[Any]:
+        """
+        Execute multi-hop reasoning for complex queries.
+        
+        Checks if the query requires multi-hop reasoning and executes
+        the reasoning chain if needed, augmenting the retrieved context.
+        
+        Returns:
+            MultiHopResult or None if not needed/disabled
+        """
+        if not self._multihop_agent:
+            return None
+        
+        # Check if multi-hop should be forced
+        force_multihop = self._config.multihop.force_multihop
+        
+        with metrics.track_step("MultiHopReasoningAgent") as step:
+            try:
+                # Get initial context from already retrieved docs
+                initial_context = [doc for doc, _ in ctx.fused] if ctx.fused else None
+                
+                result = self._multihop_agent.run(
+                    query=ctx.original_query,
+                    initial_context=initial_context,
+                    force_multihop=force_multihop,
+                )
+                
+                step.extra["requires_multihop"] = result.requires_multihop
+                step.extra["total_hops"] = result.total_hops
+                step.extra["success"] = result.success
+                
+                if result.requires_multihop and result.success:
+                    # Store multi-hop metadata in context
+                    ctx.multihop_used = True
+                    ctx.multihop_hops = result.total_hops
+                    
+                    # Merge multi-hop context with existing fused results
+                    # Add new documents to the context
+                    existing_ids = {getattr(doc, 'doc_id', id(doc)) for doc, _ in ctx.fused}
+                    
+                    for doc in result.final_context:
+                        doc_id = getattr(doc, 'doc_id', id(doc))
+                        if doc_id not in existing_ids:
+                            # Add with a reasonable score
+                            ctx.fused.append((doc, 0.7))
+                            existing_ids.add(doc_id)
+                    
+                    step.extra["docs_added"] = len(result.final_context)
+                    
+                    logger.info(
+                        f"[{ctx.run_id}] Multi-hop reasoning complete: "
+                        f"{result.total_hops} hops, {len(result.final_context)} docs"
+                    )
+                else:
+                    ctx.multihop_used = False
+                    ctx.multihop_hops = 0
+                
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Multi-hop reasoning failed: {e}")
+                metrics.mark_degraded("multihop", str(e))
+                ctx.multihop_used = False
+                ctx.multihop_hops = 0
+                return None
+
+    def _run_fact_verification(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        answer: str,
+    ) -> Optional[Any]:
+        """
+        Execute fact verification on the generated answer.
+        
+        Verifies each claim in the answer against the retrieved context
+        to ensure factual accuracy and prevent hallucinations.
+        
+        Args:
+            ctx: Agent context
+            metrics: Run metrics
+            answer: Generated answer to verify
+            
+        Returns:
+            FactVerificationResult or None if disabled
+        """
+        if not self._fact_verification_agent:
+            return None
+        
+        context_docs = [doc for doc, _ in ctx.reranked]
+        
+        if not context_docs:
+            return None
+        
+        with metrics.track_step("FactVerificationAgent") as step:
+            try:
+                result = self._fact_verification_agent.verify_answer(
+                    answer=answer,
+                    context_docs=context_docs,
+                    query=ctx.original_query,
+                )
+                
+                step.extra["num_claims"] = len(result.claims)
+                step.extra["overall_score"] = result.overall_score
+                step.extra["is_factual"] = result.is_factual
+                step.extra["num_supported"] = result.num_supported
+                step.extra["num_contradicted"] = result.num_contradicted
+                step.extra["needs_correction"] = result.needs_correction
+                
+                if not result.is_factual:
+                    ctx.add_warning(
+                        f"Fact verification: {result.num_contradicted} contradicted, "
+                        f"{result.num_not_supported} unsupported claims"
+                    )
+                
+                # Check if we should block the answer
+                if (self._config.fact_verification.block_on_failure and 
+                    result.overall_score < self._config.fact_verification.min_factuality_score):
+                    logger.warning(
+                        f"[{ctx.run_id}] Answer blocked due to low factuality score: "
+                        f"{result.overall_score:.2f}"
+                    )
+                    ctx.add_warning("Answer blocked due to factual accuracy concerns")
+                
+                logger.info(
+                    f"[{ctx.run_id}] Fact verification: score={result.overall_score:.2f}, "
+                    f"supported={result.num_supported}/{len(result.claims)}"
+                )
+                
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Fact verification failed: {e}")
+                metrics.mark_degraded("fact_verification", str(e))
+                return None
+
+    def _run_citation_tracking(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        answer: str,
+    ) -> Optional[Any]:
+        """
+        Execute citation tracking on the generated answer.
+        
+        Adds citations to the answer linking claims to their source documents
+        for enterprise compliance and auditability.
+        
+        Args:
+            ctx: Agent context
+            metrics: Run metrics
+            answer: Generated answer to add citations to
+            
+        Returns:
+            CitedAnswer or None if disabled
+        """
+        if not self._citation_agent:
+            return None
+        
+        context_docs = [doc for doc, _ in ctx.reranked]
+        scores = [score for _, score in ctx.reranked] if ctx.reranked else None
+        
+        if not context_docs:
+            return None
+        
+        with metrics.track_step("CitationTrackingAgent") as step:
+            try:
+                result = self._citation_agent.create_cited_answer(
+                    answer=answer,
+                    context_docs=context_docs,
+                    query=ctx.original_query,
+                    scores=scores,
+                )
+                
+                step.extra["num_citations"] = len(result.citations)
+                step.extra["num_sources"] = len(result.sources)
+                step.extra["coverage_score"] = result.coverage_score
+                step.extra["audit_id"] = result.audit_id
+                
+                # Generate audit log if enabled
+                if self._config.citation.generate_audit_trail:
+                    audit_log = self._citation_agent.generate_audit_report(
+                        result, ctx.original_query
+                    )
+                    step.extra["audit_log"] = audit_log
+                
+                logger.info(
+                    f"[{ctx.run_id}] Citation tracking: {len(result.citations)} citations, "
+                    f"{result.coverage_score:.0%} coverage, audit_id={result.audit_id}"
+                )
+                
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Citation tracking failed: {e}")
+                metrics.mark_degraded("citation", str(e))
+                return None
 
 
 class SimplifiedOrchestrator:

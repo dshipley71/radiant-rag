@@ -81,6 +81,31 @@ from radiant.agents.context_eval import (
     ContextEvaluation,
 )
 
+# Multi-hop reasoning (new)
+from radiant.agents.multihop import (
+    MultiHopReasoningAgent,
+    MultiHopResult,
+    ReasoningStep,
+)
+
+# Fact verification (new)
+from radiant.agents.fact_verification import (
+    FactVerificationAgent,
+    FactVerificationResult,
+    Claim,
+    ClaimVerification,
+    VerificationStatus,
+)
+
+# Citation tracking (new)
+from radiant.agents.citation import (
+    CitationTrackingAgent,
+    CitedAnswer,
+    Citation,
+    SourceDocument,
+    CitationStyle,
+)
+
 __all__ = [
     # Base
     "AgentContext",
@@ -128,4 +153,20 @@ __all__ = [
     # Context evaluation
     "ContextEvaluationAgent",
     "ContextEvaluation",
+    # Multi-hop reasoning
+    "MultiHopReasoningAgent",
+    "MultiHopResult",
+    "ReasoningStep",
+    # Fact verification
+    "FactVerificationAgent",
+    "FactVerificationResult",
+    "Claim",
+    "ClaimVerification",
+    "VerificationStatus",
+    # Citation tracking
+    "CitationTrackingAgent",
+    "CitedAnswer",
+    "Citation",
+    "SourceDocument",
+    "CitationStyle",
 ]

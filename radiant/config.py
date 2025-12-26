@@ -383,6 +383,84 @@ class ContextEvaluationConfig:
 
 
 @dataclass(frozen=True)
+class MultiHopConfig:
+    """Multi-hop reasoning agent configuration."""
+    
+    # Enable multi-hop reasoning for complex queries
+    enabled: bool = True
+    
+    # Maximum reasoning hops
+    max_hops: int = 3
+    
+    # Documents to retrieve per hop
+    docs_per_hop: int = 5
+    
+    # Minimum confidence to continue chain
+    min_confidence_to_continue: float = 0.3
+    
+    # Enable entity extraction for follow-up queries
+    enable_entity_extraction: bool = True
+    
+    # Force multi-hop for all queries (for testing)
+    force_multihop: bool = False
+
+
+@dataclass(frozen=True)
+class FactVerificationConfig:
+    """Fact verification agent configuration."""
+    
+    # Enable fact verification
+    enabled: bool = True
+    
+    # Minimum confidence to consider a claim supported
+    min_support_confidence: float = 0.6
+    
+    # Maximum claims to verify (for efficiency)
+    max_claims_to_verify: int = 20
+    
+    # Generate corrected answers when issues found
+    generate_corrections: bool = True
+    
+    # Strict mode: require explicit support (vs inference)
+    strict_mode: bool = False
+    
+    # Minimum overall score to accept answer (0-1)
+    min_factuality_score: float = 0.5
+    
+    # Block answers that fail verification
+    block_on_failure: bool = False
+
+
+@dataclass(frozen=True)
+class CitationConfig:
+    """Citation tracking agent configuration."""
+    
+    # Enable citation tracking
+    enabled: bool = True
+    
+    # Citation style: inline, footnote, academic, hyperlink, enterprise
+    citation_style: str = "inline"
+    
+    # Minimum confidence for citations
+    min_citation_confidence: float = 0.5
+    
+    # Maximum citations per claim
+    max_citations_per_claim: int = 3
+    
+    # Include supporting excerpts in citations
+    include_excerpts: bool = True
+    
+    # Maximum excerpt length
+    excerpt_max_length: int = 200
+    
+    # Generate bibliography/references section
+    generate_bibliography: bool = True
+    
+    # Generate audit trail
+    generate_audit_trail: bool = True
+
+
+@dataclass(frozen=True)
 class QueryConfig:
     """Query processing configuration."""
     max_decomposed_queries: int = 5
@@ -572,6 +650,9 @@ class AppConfig:
     chunking: ChunkingConfig
     summarization: SummarizationConfig
     context_evaluation: ContextEvaluationConfig
+    multihop: MultiHopConfig
+    fact_verification: FactVerificationConfig
+    citation: CitationConfig
     query: QueryConfig
     conversation: ConversationConfig
     parsing: ParsingConfig
@@ -802,6 +883,36 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         abort_on_poor_context=_get_config_value(data, "context_evaluation", "abort_on_poor_context", False, _parse_bool),
     )
 
+    multihop = MultiHopConfig(
+        enabled=_get_config_value(data, "multihop", "enabled", True, _parse_bool),
+        max_hops=_get_config_value(data, "multihop", "max_hops", 3, _parse_int),
+        docs_per_hop=_get_config_value(data, "multihop", "docs_per_hop", 5, _parse_int),
+        min_confidence_to_continue=_get_config_value(data, "multihop", "min_confidence_to_continue", 0.3, _parse_float),
+        enable_entity_extraction=_get_config_value(data, "multihop", "enable_entity_extraction", True, _parse_bool),
+        force_multihop=_get_config_value(data, "multihop", "force_multihop", False, _parse_bool),
+    )
+
+    fact_verification = FactVerificationConfig(
+        enabled=_get_config_value(data, "fact_verification", "enabled", True, _parse_bool),
+        min_support_confidence=_get_config_value(data, "fact_verification", "min_support_confidence", 0.6, _parse_float),
+        max_claims_to_verify=_get_config_value(data, "fact_verification", "max_claims_to_verify", 20, _parse_int),
+        generate_corrections=_get_config_value(data, "fact_verification", "generate_corrections", True, _parse_bool),
+        strict_mode=_get_config_value(data, "fact_verification", "strict_mode", False, _parse_bool),
+        min_factuality_score=_get_config_value(data, "fact_verification", "min_factuality_score", 0.5, _parse_float),
+        block_on_failure=_get_config_value(data, "fact_verification", "block_on_failure", False, _parse_bool),
+    )
+
+    citation = CitationConfig(
+        enabled=_get_config_value(data, "citation", "enabled", True, _parse_bool),
+        citation_style=_get_config_value(data, "citation", "citation_style", "inline"),
+        min_citation_confidence=_get_config_value(data, "citation", "min_citation_confidence", 0.5, _parse_float),
+        max_citations_per_claim=_get_config_value(data, "citation", "max_citations_per_claim", 3, _parse_int),
+        include_excerpts=_get_config_value(data, "citation", "include_excerpts", True, _parse_bool),
+        excerpt_max_length=_get_config_value(data, "citation", "excerpt_max_length", 200, _parse_int),
+        generate_bibliography=_get_config_value(data, "citation", "generate_bibliography", True, _parse_bool),
+        generate_audit_trail=_get_config_value(data, "citation", "generate_audit_trail", True, _parse_bool),
+    )
+
     query = QueryConfig(
         max_decomposed_queries=_get_config_value(data, "query", "max_decomposed_queries", 5, _parse_int),
         max_expansions=_get_config_value(data, "query", "max_expansions", 12, _parse_int),
@@ -939,6 +1050,9 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         chunking=chunking,
         summarization=summarization,
         context_evaluation=context_evaluation,
+        multihop=multihop,
+        fact_verification=fact_verification,
+        citation=citation,
         query=query,
         conversation=conversation,
         parsing=parsing,

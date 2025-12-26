@@ -379,6 +379,90 @@ context_evaluation:
   abort_on_poor_context: false
 
 # -----------------------------------------------------------------------------
+# Multi-hop Reasoning Configuration
+# Handles complex queries requiring multiple retrieval steps
+# -----------------------------------------------------------------------------
+multihop:
+  # Enable multi-hop reasoning for complex queries
+  enabled: true
+
+  # Maximum reasoning hops (each hop is a retrieval + extraction cycle)
+  max_hops: 3
+
+  # Documents to retrieve per hop
+  docs_per_hop: 5
+
+  # Minimum confidence to continue chain (0-1)
+  # If intermediate answer confidence falls below this, chain stops
+  min_confidence_to_continue: 0.3
+
+  # Enable entity extraction for follow-up queries
+  enable_entity_extraction: true
+
+  # Force multi-hop for all queries (for testing/debugging)
+  force_multihop: false
+
+# -----------------------------------------------------------------------------
+# Fact Verification Configuration
+# Verifies claims in generated answers against retrieved context
+# -----------------------------------------------------------------------------
+fact_verification:
+  # Enable fact verification
+  enabled: true
+
+  # Minimum confidence to consider a claim supported (0-1)
+  min_support_confidence: 0.6
+
+  # Maximum claims to verify (for efficiency)
+  max_claims_to_verify: 20
+
+  # Generate corrected answers when issues found
+  generate_corrections: true
+
+  # Strict mode: require explicit support (vs reasonable inference)
+  strict_mode: false
+
+  # Minimum overall factuality score to accept answer (0-1)
+  min_factuality_score: 0.5
+
+  # Block answers that fail verification (returns error instead)
+  block_on_failure: false
+
+# -----------------------------------------------------------------------------
+# Citation Tracking Configuration
+# Adds source references to answers for enterprise compliance
+# -----------------------------------------------------------------------------
+citation:
+  # Enable citation tracking
+  enabled: true
+
+  # Citation style: inline, footnote, academic, hyperlink, enterprise
+  # - inline: [1], [2], etc. (default)
+  # - footnote: Superscript numbers
+  # - academic: Author (Year) style
+  # - hyperlink: [Source](url) format
+  # - enterprise: Document ID + timestamp for audit trails
+  citation_style: "inline"
+
+  # Minimum confidence for including a citation (0-1)
+  min_citation_confidence: 0.5
+
+  # Maximum citations per claim
+  max_citations_per_claim: 3
+
+  # Include supporting excerpts from source documents
+  include_excerpts: true
+
+  # Maximum length of excerpts (characters)
+  excerpt_max_length: 200
+
+  # Generate bibliography/references section at end of answer
+  generate_bibliography: true
+
+  # Generate audit trail for compliance
+  generate_audit_trail: true
+
+# -----------------------------------------------------------------------------
 # Query Processing Configuration
 # -----------------------------------------------------------------------------
 query:
