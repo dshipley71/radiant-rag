@@ -312,6 +312,77 @@ class AgenticConfig:
 
 
 @dataclass(frozen=True)
+class ChunkingConfig:
+    """Intelligent chunking configuration."""
+    
+    # Enable intelligent (LLM-based) chunking
+    enabled: bool = True
+    
+    # Use LLM for chunking decisions (vs rule-based only)
+    use_llm_chunking: bool = True
+    
+    # Document length threshold for LLM chunking (shorter docs use rule-based)
+    llm_chunk_threshold: int = 3000
+    
+    # Chunk size parameters
+    min_chunk_size: int = 200
+    max_chunk_size: int = 1500
+    target_chunk_size: int = 800
+    overlap_size: int = 100
+
+
+@dataclass(frozen=True)
+class SummarizationConfig:
+    """Summarization agent configuration."""
+    
+    # Enable summarization agent
+    enabled: bool = True
+    
+    # Minimum document length to trigger summarization
+    min_doc_length_for_summary: int = 2000
+    
+    # Target summary length
+    target_summary_length: int = 500
+    
+    # Conversation compression settings
+    conversation_compress_threshold: int = 6
+    conversation_preserve_recent: int = 2
+    
+    # Document deduplication settings
+    similarity_threshold: float = 0.85
+    max_cluster_size: int = 3
+    
+    # Maximum total context characters (triggers compression if exceeded)
+    max_total_context_chars: int = 8000
+
+
+@dataclass(frozen=True)
+class ContextEvaluationConfig:
+    """Context evaluation agent configuration."""
+    
+    # Enable pre-generation context evaluation
+    enabled: bool = True
+    
+    # Use LLM for detailed evaluation (vs heuristics only)
+    use_llm_evaluation: bool = True
+    
+    # Minimum score to consider context sufficient (0-1)
+    sufficiency_threshold: float = 0.5
+    
+    # Minimum number of relevant documents required
+    min_relevant_docs: int = 1
+    
+    # Maximum docs to include in evaluation
+    max_docs_to_evaluate: int = 8
+    
+    # Maximum characters per doc for evaluation
+    max_doc_chars: int = 1000
+    
+    # Skip generation if context evaluation recommends abort
+    abort_on_poor_context: bool = False
+
+
+@dataclass(frozen=True)
 class QueryConfig:
     """Query processing configuration."""
     max_decomposed_queries: int = 5
@@ -498,6 +569,9 @@ class AppConfig:
     synthesis: SynthesisConfig
     critic: CriticConfig
     agentic: AgenticConfig
+    chunking: ChunkingConfig
+    summarization: SummarizationConfig
+    context_evaluation: ContextEvaluationConfig
     query: QueryConfig
     conversation: ConversationConfig
     parsing: ParsingConfig
@@ -697,6 +771,37 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         retry_expansion_factor=_get_config_value(data, "agentic", "retry_expansion_factor", 1.5, _parse_float),
     )
 
+    chunking = ChunkingConfig(
+        enabled=_get_config_value(data, "chunking", "enabled", True, _parse_bool),
+        use_llm_chunking=_get_config_value(data, "chunking", "use_llm_chunking", True, _parse_bool),
+        llm_chunk_threshold=_get_config_value(data, "chunking", "llm_chunk_threshold", 3000, _parse_int),
+        min_chunk_size=_get_config_value(data, "chunking", "min_chunk_size", 200, _parse_int),
+        max_chunk_size=_get_config_value(data, "chunking", "max_chunk_size", 1500, _parse_int),
+        target_chunk_size=_get_config_value(data, "chunking", "target_chunk_size", 800, _parse_int),
+        overlap_size=_get_config_value(data, "chunking", "overlap_size", 100, _parse_int),
+    )
+
+    summarization = SummarizationConfig(
+        enabled=_get_config_value(data, "summarization", "enabled", True, _parse_bool),
+        min_doc_length_for_summary=_get_config_value(data, "summarization", "min_doc_length_for_summary", 2000, _parse_int),
+        target_summary_length=_get_config_value(data, "summarization", "target_summary_length", 500, _parse_int),
+        conversation_compress_threshold=_get_config_value(data, "summarization", "conversation_compress_threshold", 6, _parse_int),
+        conversation_preserve_recent=_get_config_value(data, "summarization", "conversation_preserve_recent", 2, _parse_int),
+        similarity_threshold=_get_config_value(data, "summarization", "similarity_threshold", 0.85, _parse_float),
+        max_cluster_size=_get_config_value(data, "summarization", "max_cluster_size", 3, _parse_int),
+        max_total_context_chars=_get_config_value(data, "summarization", "max_total_context_chars", 8000, _parse_int),
+    )
+
+    context_evaluation = ContextEvaluationConfig(
+        enabled=_get_config_value(data, "context_evaluation", "enabled", True, _parse_bool),
+        use_llm_evaluation=_get_config_value(data, "context_evaluation", "use_llm_evaluation", True, _parse_bool),
+        sufficiency_threshold=_get_config_value(data, "context_evaluation", "sufficiency_threshold", 0.5, _parse_float),
+        min_relevant_docs=_get_config_value(data, "context_evaluation", "min_relevant_docs", 1, _parse_int),
+        max_docs_to_evaluate=_get_config_value(data, "context_evaluation", "max_docs_to_evaluate", 8, _parse_int),
+        max_doc_chars=_get_config_value(data, "context_evaluation", "max_doc_chars", 1000, _parse_int),
+        abort_on_poor_context=_get_config_value(data, "context_evaluation", "abort_on_poor_context", False, _parse_bool),
+    )
+
     query = QueryConfig(
         max_decomposed_queries=_get_config_value(data, "query", "max_decomposed_queries", 5, _parse_int),
         max_expansions=_get_config_value(data, "query", "max_expansions", 12, _parse_int),
@@ -831,6 +936,9 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         synthesis=synthesis,
         critic=critic,
         agentic=agentic,
+        chunking=chunking,
+        summarization=summarization,
+        context_evaluation=context_evaluation,
         query=query,
         conversation=conversation,
         parsing=parsing,

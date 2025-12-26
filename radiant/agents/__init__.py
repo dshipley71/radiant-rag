@@ -9,6 +9,9 @@ Provides specialized agents for each stage of the RAG pipeline:
     - Generation (answer synthesis, critique)
     - Tools (calculator, code execution)
     - Strategy memory (adaptive retrieval)
+    - Intelligent chunking (semantic document chunking)
+    - Summarization (context compression)
+    - Context evaluation (pre-generation quality gate)
 """
 
 # Base context
@@ -58,6 +61,26 @@ from radiant.agents.strategy_memory import (
     QueryPatternExtractor,
 )
 
+# Intelligent chunking (new)
+from radiant.agents.chunking import (
+    IntelligentChunkingAgent,
+    SemanticChunk,
+    ChunkingResult,
+)
+
+# Summarization (new)
+from radiant.agents.summarization import (
+    SummarizationAgent,
+    CompressedDocument,
+    SummarizationResult,
+)
+
+# Context evaluation (new)
+from radiant.agents.context_eval import (
+    ContextEvaluationAgent,
+    ContextEvaluation,
+)
+
 __all__ = [
     # Base
     "AgentContext",
@@ -94,4 +117,15 @@ __all__ = [
     "StrategyOutcome",
     "QueryPattern",
     "QueryPatternExtractor",
+    # Intelligent chunking
+    "IntelligentChunkingAgent",
+    "SemanticChunk",
+    "ChunkingResult",
+    # Summarization
+    "SummarizationAgent",
+    "CompressedDocument",
+    "SummarizationResult",
+    # Context evaluation
+    "ContextEvaluationAgent",
+    "ContextEvaluation",
 ]

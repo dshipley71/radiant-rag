@@ -843,6 +843,60 @@ The system learns over time which strategies work for:
 - Procedural queries ("how to...")
 - And more query patterns
 
+### Intelligent Chunking
+
+LLM-based semantic chunking at ingestion time for improved retrieval quality:
+
+```yaml
+chunking:
+  enabled: true
+  use_llm_chunking: true     # Use LLM for semantic boundaries
+  llm_chunk_threshold: 3000  # Min doc size for LLM chunking
+  target_chunk_size: 800     # Target chunk size
+```
+
+Unlike fixed-size chunking, intelligent chunking:
+- Identifies logical document boundaries (paragraphs, sections, topics)
+- Preserves semantic coherence within chunks
+- Adapts strategy based on document type (code, markdown, prose)
+- Maintains context across chunk boundaries
+
+### Pre-Generation Context Evaluation
+
+Quality gate before generation to prevent wasted LLM calls on poor retrievals:
+
+```yaml
+context_evaluation:
+  enabled: true
+  use_llm_evaluation: true   # Use LLM for detailed assessment
+  sufficiency_threshold: 0.5 # Minimum quality score
+  abort_on_poor_context: false
+```
+
+The context evaluation agent:
+- Assesses relevance, coverage, and specificity of retrieved documents
+- Provides actionable recommendations (proceed, expand retrieval, rewrite query)
+- Can trigger automatic retrieval expansion or query modification
+- Prevents generation when context is clearly insufficient
+
+### Context Summarization
+
+Adaptive context compression to optimize context window utilization:
+
+```yaml
+summarization:
+  enabled: true
+  min_doc_length_for_summary: 2000
+  conversation_compress_threshold: 6
+  max_total_context_chars: 8000
+```
+
+Summarization activates conditionally when:
+- Document length exceeds threshold
+- Conversation history exceeds threshold
+- Multiple highly-similar documents are retrieved
+- Total context exceeds configured limits
+
 ---
 
 ## File Structure
@@ -880,6 +934,9 @@ radiant-rag/
 │   │   ├── critic.py           # CriticAgent (confidence scoring)
 │   │   ├── tools.py            # Tool abstraction (calculator, code)
 │   │   ├── strategy_memory.py  # Retrieval strategy learning
+│   │   ├── chunking.py         # IntelligentChunkingAgent (NEW)
+│   │   ├── summarization.py    # SummarizationAgent (NEW)
+│   │   ├── context_eval.py     # ContextEvaluationAgent (NEW)
 │   │   └── registry.py         # Agent registry
 │   │
 │   ├── storage/                # Storage backends
@@ -889,7 +946,7 @@ radiant-rag/
 │   │
 │   ├── ingestion/              # Document processing
 │   │   ├── __init__.py
-│   │   ├── processor.py        # DocumentProcessor
+│   │   ├── processor.py        # DocumentProcessor, IntelligentDocumentProcessor
 │   │   ├── web_crawler.py      # URL crawling
 │   │   └── image_captioner.py  # VLM captioning
 │   │

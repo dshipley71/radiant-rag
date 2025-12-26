@@ -7,6 +7,8 @@ Coordinates the execution of all pipeline agents with:
 - Dynamic retrieval mode selection
 - Tool integration
 - Strategy memory for adaptive behavior
+- Pre-generation context evaluation
+- Context summarization and compression
 """
 
 from __future__ import annotations
@@ -37,6 +39,9 @@ from radiant.agents import (
     RRFAgent,
     WebSearchAgent,
     new_agent_context,
+    # New agents
+    ContextEvaluationAgent,
+    SummarizationAgent,
 )
 from radiant.agents.tools import (
     ToolRegistry,
@@ -116,6 +121,8 @@ class RAGOrchestrator:
     - Dynamic retrieval mode selection based on query analysis
     - Tool integration for calculations and code execution
     - Strategy memory for learning optimal retrieval strategies
+    - Pre-generation context evaluation
+    - Context summarization and compression
     """
 
     def __init__(
@@ -142,6 +149,7 @@ class RAGOrchestrator:
         self._pipeline_config = config.pipeline
         self._agentic_config = config.agentic
         self._conversation = conversation_manager
+        self._llm = llm  # Store for new agents
 
         # Initialize strategy memory
         self._strategy_memory: Optional[RetrievalStrategyMemory] = None
@@ -184,11 +192,37 @@ class RAGOrchestrator:
         )
         self._critic_agent = CriticAgent(llm, config.critic)
 
+        # Initialize new agents (context evaluation and summarization)
+        self._context_eval_agent: Optional[ContextEvaluationAgent] = None
+        if config.context_evaluation.enabled:
+            self._context_eval_agent = ContextEvaluationAgent(
+                llm=llm,
+                sufficiency_threshold=config.context_evaluation.sufficiency_threshold,
+                min_relevant_docs=config.context_evaluation.min_relevant_docs,
+                max_docs_to_evaluate=config.context_evaluation.max_docs_to_evaluate,
+                max_doc_chars=config.context_evaluation.max_doc_chars,
+                use_llm_evaluation=config.context_evaluation.use_llm_evaluation,
+            )
+
+        self._summarization_agent: Optional[SummarizationAgent] = None
+        if config.summarization.enabled:
+            self._summarization_agent = SummarizationAgent(
+                llm=llm,
+                min_doc_length_for_summary=config.summarization.min_doc_length_for_summary,
+                target_summary_length=config.summarization.target_summary_length,
+                conversation_compress_threshold=config.summarization.conversation_compress_threshold,
+                conversation_preserve_recent=config.summarization.conversation_preserve_recent,
+                similarity_threshold=config.summarization.similarity_threshold,
+                max_cluster_size=config.summarization.max_cluster_size,
+            )
+
         logger.info(
             f"Agentic RAG orchestrator initialized "
             f"(web_search={'enabled' if config.web_search.enabled else 'disabled'}, "
             f"tools={'enabled' if config.agentic.tools_enabled else 'disabled'}, "
-            f"strategy_memory={'enabled' if config.agentic.strategy_memory_enabled else 'disabled'})"
+            f"strategy_memory={'enabled' if config.agentic.strategy_memory_enabled else 'disabled'}, "
+            f"context_eval={'enabled' if config.context_evaluation.enabled else 'disabled'}, "
+            f"summarization={'enabled' if config.summarization.enabled else 'disabled'})"
         )
 
     def run(
@@ -261,6 +295,34 @@ class RAGOrchestrator:
                     ctx.original_query,
                     ctx.reranked
                 )
+
+                # Phase 5.5: Pre-generation Context Evaluation (new)
+                context_eval = self._run_context_evaluation(ctx, metrics, plan)
+                
+                # If context is insufficient and we should abort, handle it
+                if context_eval and not context_eval.sufficient:
+                    if self._config.context_evaluation.abort_on_poor_context and context_eval.recommendation == "abort":
+                        logger.warning(f"[{ctx.run_id}] Aborting due to poor context quality")
+                        ctx.add_warning("Context quality too low for reliable answer")
+                        answer = self._generate_low_confidence_response(
+                            ctx,
+                            {
+                                "confidence": context_eval.confidence * 0.5,
+                                "issues": context_eval.missing_aspects,
+                            }
+                        )
+                        ctx.low_confidence_response = True
+                        break  # Exit retry loop
+                    elif context_eval.recommendation == "expand_retrieval" and attempt < max_retries:
+                        # Modify plan to expand retrieval on next attempt
+                        plan["use_expansion"] = True
+                        ctx.add_warning(f"Context evaluation suggests expansion: {', '.join(context_eval.suggestions[:2])}")
+                    elif context_eval.recommendation == "rewrite_query" and attempt < max_retries:
+                        plan["use_rewrite"] = True
+                        ctx.add_warning(f"Context evaluation suggests rewrite: {', '.join(context_eval.suggestions[:2])}")
+
+                # Phase 5.6: Context Summarization (new)
+                self._run_context_summarization(ctx, metrics, plan)
 
                 # Phase 6: Generation
                 answer = self._run_generation(ctx, metrics, plan, is_retry, attempt)
@@ -651,6 +713,137 @@ class RAGOrchestrator:
                     ctx.reranked = ctx.auto_merged
         else:
             ctx.reranked = ctx.auto_merged
+
+    def _run_context_evaluation(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        plan: Dict[str, Any],
+    ) -> Optional[Any]:
+        """
+        Execute pre-generation context evaluation phase.
+        
+        Evaluates retrieved context quality before generation to prevent
+        wasted LLM calls on poor retrieval results.
+        
+        Returns:
+            ContextEvaluation result or None if evaluation is disabled
+        """
+        if not self._context_eval_agent:
+            return None
+        
+        if not plan.get("use_context_eval", True):
+            return None
+        
+        # Get scores from reranked docs if available
+        scores = [score for _, score in ctx.reranked] if ctx.reranked else None
+        docs = [doc for doc, _ in ctx.reranked] if ctx.reranked else []
+        
+        with metrics.track_step("ContextEvaluationAgent") as step:
+            try:
+                evaluation = self._context_eval_agent.evaluate(
+                    query=ctx.original_query,
+                    docs=docs,
+                    scores=scores,
+                )
+                
+                step.extra["sufficient"] = evaluation.sufficient
+                step.extra["confidence"] = evaluation.confidence
+                step.extra["relevance_score"] = evaluation.relevance_score
+                step.extra["coverage_score"] = evaluation.coverage_score
+                step.extra["recommendation"] = evaluation.recommendation
+                
+                if not evaluation.sufficient:
+                    logger.info(
+                        f"[{ctx.run_id}] Context evaluation: insufficient "
+                        f"(relevance={evaluation.relevance_score:.1f}, "
+                        f"coverage={evaluation.coverage_score:.1f}, "
+                        f"recommendation={evaluation.recommendation})"
+                    )
+                    if evaluation.missing_aspects:
+                        ctx.add_warning(f"Missing: {', '.join(evaluation.missing_aspects[:2])}")
+                
+                return evaluation
+                
+            except Exception as e:
+                logger.warning(f"Context evaluation failed: {e}")
+                metrics.mark_degraded("context_eval", str(e))
+                return None
+
+    def _run_context_summarization(
+        self,
+        ctx: AgentContext,
+        metrics: RunMetrics,
+        plan: Dict[str, Any],
+    ) -> None:
+        """
+        Execute context summarization phase if needed.
+        
+        Compresses context documents when:
+        - Total context exceeds character limits
+        - Individual documents are very long
+        - Multiple similar documents are retrieved
+        """
+        if not self._summarization_agent:
+            return
+        
+        if not plan.get("use_summarization", True):
+            return
+        
+        # Get docs from reranked results
+        docs = [doc for doc, _ in ctx.reranked] if ctx.reranked else []
+        scores = [score for _, score in ctx.reranked] if ctx.reranked else None
+        
+        # Check if summarization is needed
+        max_chars = self._config.summarization.max_total_context_chars
+        if not self._summarization_agent.should_summarize_documents(docs, max_chars):
+            return
+        
+        with metrics.track_step("SummarizationAgent") as step:
+            try:
+                result = self._summarization_agent.compress_documents(
+                    docs=docs,
+                    query=ctx.original_query,
+                    max_total_chars=max_chars,
+                    scores=scores,
+                )
+                
+                step.extra["docs_compressed"] = result.documents_compressed
+                step.extra["compression_ratio"] = result.compression_ratio
+                step.extra["original_chars"] = result.total_original_chars
+                step.extra["compressed_chars"] = result.total_compressed_chars
+                
+                if result.documents_compressed > 0:
+                    logger.info(
+                        f"[{ctx.run_id}] Summarized {result.documents_compressed} docs "
+                        f"({result.total_original_chars} -> {result.total_compressed_chars} chars, "
+                        f"{result.compression_ratio:.1%} ratio)"
+                    )
+                    
+                    # Replace reranked docs with compressed versions
+                    # Preserve original scores
+                    new_reranked = []
+                    for i, compressed_doc in enumerate(result.documents):
+                        score = scores[i] if scores and i < len(scores) else 0.5
+                        # Create a simple doc-like object with compressed content
+                        class CompressedDocWrapper:
+                            def __init__(self, content: str, meta: dict):
+                                self.content = content
+                                self.meta = meta
+                                self.doc_id = compressed_doc.original_id
+                        
+                        wrapped_doc = CompressedDocWrapper(
+                            content=compressed_doc.content,
+                            meta=compressed_doc.metadata,
+                        )
+                        new_reranked.append((wrapped_doc, score))
+                    
+                    ctx.reranked = new_reranked
+                    ctx.add_warning(f"Context compressed ({result.compression_ratio:.0%} of original)")
+                
+            except Exception as e:
+                logger.warning(f"Context summarization failed: {e}")
+                metrics.mark_degraded("summarization", str(e))
 
     def _run_generation(
         self,

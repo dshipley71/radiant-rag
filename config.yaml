@@ -294,6 +294,91 @@ agentic:
   retry_expansion_factor: 1.5
 
 # -----------------------------------------------------------------------------
+# Intelligent Chunking Configuration
+# LLM-based semantic chunking for improved retrieval quality
+# -----------------------------------------------------------------------------
+chunking:
+  # Enable intelligent chunking (vs basic fixed-size)
+  enabled: true
+
+  # Use LLM for chunking decisions (vs rule-based only)
+  # LLM chunking preserves semantic boundaries better but is slower
+  use_llm_chunking: true
+
+  # Document length threshold for LLM chunking (shorter docs use rule-based)
+  llm_chunk_threshold: 3000
+
+  # Minimum chunk size in characters
+  min_chunk_size: 200
+
+  # Maximum chunk size in characters
+  max_chunk_size: 1500
+
+  # Target chunk size (for LLM guidance)
+  target_chunk_size: 800
+
+  # Overlap between chunks for context preservation
+  overlap_size: 100
+
+# -----------------------------------------------------------------------------
+# Summarization Configuration
+# Context compression and conversation history summarization
+# -----------------------------------------------------------------------------
+summarization:
+  # Enable summarization agent
+  enabled: true
+
+  # Minimum document length to trigger summarization (characters)
+  min_doc_length_for_summary: 2000
+
+  # Target summary length (characters)
+  target_summary_length: 500
+
+  # Compress conversation after this many turns
+  conversation_compress_threshold: 6
+
+  # Keep this many recent turns verbatim (not summarized)
+  conversation_preserve_recent: 2
+
+  # Similarity threshold for document clustering (0-1)
+  # Documents above this similarity are candidates for merging
+  similarity_threshold: 0.85
+
+  # Maximum documents to merge in a single cluster
+  max_cluster_size: 3
+
+  # Maximum total context characters (triggers compression if exceeded)
+  max_total_context_chars: 8000
+
+# -----------------------------------------------------------------------------
+# Context Evaluation Configuration
+# Pre-generation quality gate to prevent wasted LLM calls
+# -----------------------------------------------------------------------------
+context_evaluation:
+  # Enable pre-generation context evaluation
+  enabled: true
+
+  # Use LLM for detailed evaluation (vs heuristics only)
+  use_llm_evaluation: true
+
+  # Minimum score to consider context sufficient (0-1)
+  # Higher = stricter quality requirements
+  sufficiency_threshold: 0.5
+
+  # Minimum number of relevant documents required
+  min_relevant_docs: 1
+
+  # Maximum docs to include in evaluation
+  max_docs_to_evaluate: 8
+
+  # Maximum characters per doc for evaluation
+  max_doc_chars: 1000
+
+  # Skip generation entirely if context evaluation recommends abort
+  # If false, still attempts generation but may trigger retry
+  abort_on_poor_context: false
+
+# -----------------------------------------------------------------------------
 # Query Processing Configuration
 # -----------------------------------------------------------------------------
 query:

@@ -581,3 +581,164 @@ class DocumentProcessor:
                 )
 
         return results
+
+
+class IntelligentDocumentProcessor(DocumentProcessor):
+    """
+    Enhanced document processor with intelligent LLM-based chunking.
+    
+    Extends DocumentProcessor with semantic chunking capabilities that
+    preserve logical document boundaries for better retrieval quality.
+    """
+    
+    def __init__(
+        self,
+        cleaning_config: UnstructuredCleaningConfig,
+        strategy: Optional[str] = None,
+        chunk_size: int = 512,
+        chunk_overlap: int = 50,
+        image_captioner: Optional["ImageCaptioner"] = None,
+        chunking_agent: Optional[Any] = None,
+        use_intelligent_chunking: bool = True,
+    ) -> None:
+        """
+        Initialize intelligent document processor.
+        
+        Args:
+            cleaning_config: Cleaning configuration
+            strategy: Partition strategy ("auto", "fast", "hi_res", "ocr_only")
+            chunk_size: Target chunk size (for fallback)
+            chunk_overlap: Chunk overlap (for fallback)
+            image_captioner: Optional VLM captioner for image files
+            chunking_agent: IntelligentChunkingAgent instance
+            use_intelligent_chunking: Whether to use intelligent chunking
+        """
+        super().__init__(
+            cleaning_config=cleaning_config,
+            strategy=strategy,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            image_captioner=image_captioner,
+        )
+        self._chunking_agent = chunking_agent
+        self._use_intelligent_chunking = use_intelligent_chunking and chunking_agent is not None
+    
+    def process_file(
+        self,
+        file_path: str,
+        split_large_chunks: bool = False,
+        max_chunk_size: int = 2000,
+        preview_sink: Optional[List[CleaningPreview]] = None,
+    ) -> List[IngestedChunk]:
+        """
+        Process a single file with intelligent chunking.
+        
+        Args:
+            file_path: Path to file
+            split_large_chunks: Whether to split large chunks (fallback)
+            max_chunk_size: Maximum chunk size before splitting (fallback)
+            preview_sink: Optional list for cleaning previews
+            
+        Returns:
+            List of processed chunks
+        """
+        path = Path(file_path)
+        
+        # Use parent class for images (no chunking needed)
+        if _is_image_file(file_path):
+            return super().process_file(
+                file_path, split_large_chunks, max_chunk_size, preview_sink
+            )
+        
+        # Get raw content first
+        if path.suffix.lower() in (".txt", ".md", ".rst"):
+            raw_chunks = parse_text_file(file_path, self._cleaning)
+        elif UNSTRUCTURED_AVAILABLE:
+            raw_chunks = parse_document(
+                file_path,
+                strategy=self._strategy,
+                cleaning=self._cleaning,
+                preview_sink=preview_sink,
+                preview_max_items=self._preview_config.preview_max_items,
+                preview_max_chars=self._preview_config.preview_max_chars,
+            )
+        else:
+            raw_chunks = parse_text_file(file_path, self._cleaning)
+        
+        # Combine all chunks into single content for intelligent chunking
+        if not raw_chunks:
+            return []
+        
+        # If only one small chunk or intelligent chunking disabled, use fallback
+        total_content = "\n\n".join(c.content for c in raw_chunks)
+        
+        if not self._use_intelligent_chunking or len(total_content) < 500:
+            if split_large_chunks:
+                result: List[IngestedChunk] = []
+                for chunk in raw_chunks:
+                    if len(chunk.content) > max_chunk_size:
+                        result.extend(self._splitter.split_chunk(chunk))
+                    else:
+                        result.append(chunk)
+                return result
+            return raw_chunks
+        
+        # Use intelligent chunking
+        try:
+            # Detect document type from file extension
+            doc_type = self._detect_doc_type(path)
+            
+            # Get metadata from first chunk
+            base_meta = raw_chunks[0].meta if raw_chunks else {}
+            
+            result = self._chunking_agent.chunk_document(
+                content=total_content,
+                doc_type=doc_type,
+                metadata={"source_path": file_path, **base_meta},
+            )
+            
+            # Convert SemanticChunks to IngestedChunks
+            ingested_chunks = []
+            for semantic_chunk in result.chunks:
+                ingested_chunks.append(IngestedChunk(
+                    content=semantic_chunk.content,
+                    meta={
+                        "source_path": file_path,
+                        "chunk_index": semantic_chunk.chunk_index,
+                        "chunk_type": semantic_chunk.chunk_type,
+                        "chunking_method": result.chunking_method,
+                        **semantic_chunk.metadata,
+                    },
+                ))
+            
+            logger.info(
+                f"Intelligent chunking: {file_path} -> {len(ingested_chunks)} chunks "
+                f"(method={result.chunking_method})"
+            )
+            
+            return ingested_chunks
+            
+        except Exception as e:
+            logger.warning(
+                f"Intelligent chunking failed for {file_path}, "
+                f"falling back to basic chunking: {e}"
+            )
+            # Fallback to parent implementation
+            return super().process_file(
+                file_path, split_large_chunks, max_chunk_size, preview_sink
+            )
+    
+    def _detect_doc_type(self, path: Path) -> Optional[str]:
+        """Detect document type from file extension."""
+        ext = path.suffix.lower()
+        
+        if ext in (".py", ".js", ".ts", ".java", ".cpp", ".c", ".go", ".rs"):
+            return "code"
+        elif ext in (".md", ".markdown"):
+            return "markdown"
+        elif ext in (".html", ".htm", ".xml"):
+            return "structured"
+        elif ext == ".pdf":
+            return None  # Let chunking agent detect
+        else:
+            return "prose"

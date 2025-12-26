@@ -3,6 +3,7 @@ Document ingestion package.
 
 Provides:
     - DocumentProcessor: Main document processing class
+    - IntelligentDocumentProcessor: Enhanced processor with LLM-based chunking
     - IngestedChunk: Chunk data class
     - ChunkSplitter: Text chunking utility
     - WebCrawler: URL crawling
@@ -11,6 +12,7 @@ Provides:
 
 from radiant.ingestion.processor import (
     DocumentProcessor,
+    IntelligentDocumentProcessor,
     IngestedChunk,
     ChunkSplitter,
     CleaningOptions,
@@ -22,6 +24,7 @@ from radiant.ingestion.image_captioner import ImageCaptioner, VLMConfig, create_
 __all__ = [
     # Processor
     "DocumentProcessor",
+    "IntelligentDocumentProcessor",
     "IngestedChunk",
     "ChunkSplitter",
     "CleaningOptions",
