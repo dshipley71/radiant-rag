@@ -560,6 +560,7 @@ class LoggingConfig:
     file: str = ""
     json_logging: bool = False
     quiet_third_party: bool = True  # Suppress noisy third-party library logs
+    colorize: bool = True  # Enable colorized console output
 
 
 @dataclass(frozen=True)
@@ -1024,6 +1025,8 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         format=_get_config_value(data, "logging", "format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
         file=_get_config_value(data, "logging", "file", ""),
         json_logging=_get_config_value(data, "logging", "json_logging", False, _parse_bool),
+        quiet_third_party=_get_config_value(data, "logging", "quiet_third_party", True, _parse_bool),
+        colorize=_get_config_value(data, "logging", "colorize", True, _parse_bool),
     )
 
     metrics = MetricsConfig(
@@ -1140,16 +1143,142 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     )
 
 
+class ColorFormatter(logging.Formatter):
+    """
+    Custom logging formatter with ANSI color codes for different log levels.
+    
+    Colors:
+    - DEBUG: Cyan
+    - INFO: Green
+    - WARNING: Yellow
+    - ERROR: Red
+    - CRITICAL: Bold Red with white background
+    """
+    
+    # ANSI escape codes for colors
+    COLORS = {
+        'RESET': '\033[0m',
+        'BOLD': '\033[1m',
+        'DIM': '\033[2m',
+        
+        # Foreground colors
+        'BLACK': '\033[30m',
+        'RED': '\033[31m',
+        'GREEN': '\033[32m',
+        'YELLOW': '\033[33m',
+        'BLUE': '\033[34m',
+        'MAGENTA': '\033[35m',
+        'CYAN': '\033[36m',
+        'WHITE': '\033[37m',
+        
+        # Bright foreground colors
+        'BRIGHT_RED': '\033[91m',
+        'BRIGHT_GREEN': '\033[92m',
+        'BRIGHT_YELLOW': '\033[93m',
+        'BRIGHT_BLUE': '\033[94m',
+        'BRIGHT_MAGENTA': '\033[95m',
+        'BRIGHT_CYAN': '\033[96m',
+        'BRIGHT_WHITE': '\033[97m',
+        
+        # Background colors
+        'BG_RED': '\033[41m',
+        'BG_WHITE': '\033[47m',
+    }
+    
+    # Log level to color mapping
+    LEVEL_COLORS = {
+        logging.DEBUG: 'CYAN',
+        logging.INFO: 'GREEN',
+        logging.WARNING: 'YELLOW',
+        logging.ERROR: 'RED',
+        logging.CRITICAL: 'BRIGHT_RED',
+    }
+    
+    def __init__(self, fmt: Optional[str] = None, datefmt: Optional[str] = None, 
+                 style: str = '%', use_colors: bool = True):
+        super().__init__(fmt, datefmt, style)
+        self.use_colors = use_colors
+        self._detect_color_support()
+    
+    def _detect_color_support(self) -> None:
+        """Detect if the terminal supports colors."""
+        import sys
+        
+        # Check if output is a TTY
+        if not hasattr(sys.stderr, 'isatty') or not sys.stderr.isatty():
+            self.use_colors = False
+            return
+        
+        # Check for NO_COLOR environment variable (standard)
+        if os.environ.get('NO_COLOR'):
+            self.use_colors = False
+            return
+        
+        # Check TERM environment variable
+        term = os.environ.get('TERM', '')
+        if term == 'dumb':
+            self.use_colors = False
+            return
+    
+    def _colorize(self, text: str, color_name: str) -> str:
+        """Apply color to text."""
+        if not self.use_colors:
+            return text
+        color = self.COLORS.get(color_name, '')
+        reset = self.COLORS['RESET']
+        return f"{color}{text}{reset}"
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record with colors."""
+        # Save original values
+        original_levelname = record.levelname
+        original_name = record.name
+        original_msg = record.msg
+        
+        if self.use_colors:
+            # Get color for this level
+            color_name = self.LEVEL_COLORS.get(record.levelno, 'WHITE')
+            
+            # Colorize level name with appropriate color
+            level_color = self.COLORS.get(color_name, '')
+            reset = self.COLORS['RESET']
+            bold = self.COLORS['BOLD']
+            dim = self.COLORS['DIM']
+            
+            # Apply colors
+            record.levelname = f"{bold}{level_color}{record.levelname}{reset}"
+            record.name = f"{dim}{self.COLORS['BLUE']}{record.name}{reset}"
+            
+            # Colorize message based on level
+            if record.levelno >= logging.ERROR:
+                record.msg = f"{level_color}{record.msg}{reset}"
+            elif record.levelno == logging.WARNING:
+                record.msg = f"{level_color}{record.msg}{reset}"
+        
+        # Format the record
+        result = super().format(record)
+        
+        # Restore original values
+        record.levelname = original_levelname
+        record.name = original_name
+        record.msg = original_msg
+        
+        return result
+
+
 def setup_logging(config: LoggingConfig) -> None:
     """Configure application logging based on config."""
     handlers = []
 
     # Console handler
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(config.format))
+    if config.colorize:
+        console_handler.setFormatter(ColorFormatter(config.format, use_colors=True))
+    else:
+        console_handler.setFormatter(logging.Formatter(config.format))
     handlers.append(console_handler)
 
-    # File handler if configured
+    # File handler if configured (never use colors for files)
     if config.file:
         file_path = Path(config.file)
         file_path.parent.mkdir(parents=True, exist_ok=True)

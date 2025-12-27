@@ -609,6 +609,11 @@ logging:
   # Set to false to see all logs for debugging
   quiet_third_party: true
 
+  # Enable colorized console output
+  # Colors: DEBUG=cyan, INFO=green, WARNING=yellow, ERROR=red, CRITICAL=bright red
+  # Automatically disabled when output is not a TTY or NO_COLOR env var is set
+  colorize: true
+
 # -----------------------------------------------------------------------------
 # Metrics & Observability Configuration
 # -----------------------------------------------------------------------------
