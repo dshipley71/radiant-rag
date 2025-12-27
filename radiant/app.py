@@ -1701,9 +1701,8 @@ def main() -> int:
             display_success(f"Rebuilt BM25 index with {count} documents")
 
         elif args.command == "clear":
-            # Get current stats first
-            stats = app.store.get_stats()
-            doc_count = stats.get("total_documents", 0)
+            # Get current document count
+            doc_count = app.store.count_documents()
             
             if doc_count == 0:
                 display_info("Index is already empty")
