@@ -54,31 +54,31 @@ Radiant RAG is an enterprise-grade retrieval-augmented generation system that co
 │                           RADIANT RAG SYSTEM                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │   CLI/TUI   │    │  Python API │    │   Config    │    │   Reports   │  │
-│  │  Interface  │    │   Access    │    │   (YAML)    │    │  Generator  │  │
-│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘  │
-│         │                  │                  │                  │         │
-│         └──────────────────┼──────────────────┼──────────────────┘         │
-│                            ▼                  ▼                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                        RADIANT RAG APPLICATION                      │   │
-│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
-│  │  │                      AGENTIC ORCHESTRATOR                     │  │   │
-│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │  │   │
-│  │  │  │Planning │→│ Query   │→│Retrieval│→│  Post-  │→│Generate │  │  │   │
-│  │  │  │  Stage  │ │Processing│ │  Stage  │ │Retrieval│ │  Stage  │  │  │   │
-│  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │  │   │
-│  │  └───────────────────────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                            │                  │                            │
-│         ┌──────────────────┼──────────────────┼──────────────────┐         │
-│         ▼                  ▼                  ▼                  ▼         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
-│  │    LLM      │    │   Redis     │    │    BM25     │    │   Local     │  │
-│  │   Client    │    │Vector Store │    │    Index    │    │   Models    │  │
-│  │  (Ollama)   │    │   (HNSW)    │    │ (Persistent)│    │(Embeddings) │  │
-│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘  │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │   CLI/TUI   │    │  Python API │    │   Config    │    │   Reports   │   │
+│  │  Interface  │    │   Access    │    │   (YAML)    │    │  Generator  │   │
+│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘   │
+│         │                  │                  │                  │          │
+│         └──────────────────┼──────────────────┼──────────────────┘          │
+│                            ▼                  ▼                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                        RADIANT RAG APPLICATION                      │    │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │    │
+│  │  │                      AGENTIC ORCHESTRATOR                     │  │    │
+│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │  │    │
+│  │  │  │Planning │→│  Query  │→│Retrieval│→│  Post-  │→│Generate │  │  │    │
+│  │  │  │  Stage  │ │  Proc.  │ │  Stage  │ │Retrieval│ │  Stage  │  │  │    │
+│  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │  │    │
+│  │  └───────────────────────────────────────────────────────────────┘  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                            │                  │                             │
+│         ┌──────────────────┼──────────────────┼──────────────────┐          │
+│         ▼                  ▼                  ▼                  ▼          │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
+│  │    LLM      │    │   Redis     │    │    BM25     │    │   Local     │   │
+│  │   Client    │    │Vector Store │    │    Index    │    │   Models    │   │
+│  │  (Ollama)   │    │   (HNSW)    │    │ (Persistent)│    │(Embeddings) │   │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -94,61 +94,61 @@ Radiant RAG is an enterprise-grade retrieval-augmented generation system that co
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────┐                                                            │
-│  │  PLANNING   │  Analyze query complexity, select retrieval strategy      │
-│  │    AGENT    │  Outputs: mode (hybrid/dense/bm25), decompose?, expand?   │
+│  │  PLANNING   │  Analyze query complexity, select retrieval strategy       │
+│  │    AGENT    │  Outputs: mode (hybrid/dense/bm25), decompose?, expand?    │
 │  └──────┬──────┘                                                            │
 │         │                                                                   │
 │         ▼                                                                   │
 │  ┌─────────────┐                                                            │
-│  │   QUERY     │  Decompose complex queries into sub-queries               │
-│  │DECOMPOSITION│  Example: "Compare X and Y" → ["What is X?", "What is Y?"]│
+│  │   QUERY     │  Decompose complex queries into sub-queries                │
+│  │DECOMPOSITION│  Example: "Compare X and Y" → ["What is X?", "What is Y?"] │
 │  └──────┬──────┘                                                            │
 │         │                                                                   │
 │         ▼                                                                   │
-│  ┌─────────────┐  ┌─────────────┐                                          │
-│  │   QUERY     │  │   QUERY     │  Rewrite for clarity, expand with        │
-│  │  REWRITE    │→ │  EXPANSION  │  synonyms and related terms              │
-│  └──────┬──────┘  └──────┬──────┘                                          │
+│  ┌─────────────┐  ┌─────────────┐                                           │
+│  │   QUERY     │  │   QUERY     │  Rewrite for clarity, expand with         │
+│  │  REWRITE    │→ │  EXPANSION  │  synonyms and related terms               │
+│  └──────┬──────┘  └──────┬──────┘                                           │
 │         │                │                                                  │
 │         └───────┬────────┘                                                  │
 │                 ▼                                                           │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                         RETRIEVAL STAGE                              │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
-│  │  │   DENSE     │    │    BM25     │    │ WEB SEARCH  │               │  │
-│  │  │ RETRIEVAL   │    │ RETRIEVAL   │    │   (opt.)    │               │  │
-│  │  │ (Embeddings)│    │  (Keywords) │    │             │               │  │
-│  │  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘               │  │
-│  │         │                  │                  │                      │  │
-│  │         └──────────────────┼──────────────────┘                      │  │
-│  │                            ▼                                         │  │
-│  │                     ┌─────────────┐                                  │  │
-│  │                     │  RRF FUSION │  Reciprocal Rank Fusion          │  │
-│  │                     └──────┬──────┘                                  │  │
-│  └─────────────────────────────┼────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                         RETRIEVAL STAGE                              │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │   DENSE     │    │    BM25     │    │ WEB SEARCH  │               │   │
+│  │  │ RETRIEVAL   │    │ RETRIEVAL   │    │   (opt.)    │               │   │
+│  │  │ (Embeddings)│    │  (Keywords) │    │             │               │   │
+│  │  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘               │   │
+│  │         │                  │                  │                      │   │
+│  │         └──────────────────┼──────────────────┘                      │   │
+│  │                            ▼                                         │   │
+│  │                     ┌─────────────┐                                  │   │
+│  │                     │  RRF FUSION │  Reciprocal Rank Fusion          │   │
+│  │                     └──────┬──────┘                                  │   │
+│  └─────────────────────────────┼────────────────────────────────────────┘   │
 │                                ▼                                            │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                      POST-RETRIEVAL STAGE                            │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
-│  │  │ AUTO-MERGE  │ →  │  RERANKING  │ →  │  CONTEXT    │               │  │
-│  │  │(Hierarchical)│    │(CrossEncoder)│    │ EVALUATION │               │  │
-│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
-│  │         │                  │                  │                      │  │
-│  │         ▼                  ▼                  ▼                      │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
-│  │  │SUMMARIZATION│    │  MULTI-HOP  │    │    FACT     │               │  │
-│  │  │   (Long)    │    │  REASONING  │    │VERIFICATION │               │  │
-│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                      POST-RETRIEVAL STAGE                            │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │ AUTO-MERGE  │ →  │  RERANKING  │ →  │  CONTEXT    │               │   │
+│  │  │Hierarchical │    │ CrossEncoder│    │ EVALUATION  │               │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
+│  │         │                  │                  │                      │   │
+│  │         ▼                  ▼                  ▼                      │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │SUMMARIZATION│    │  MULTI-HOP  │    │    FACT     │               │   │
+│  │  │   (Long)    │    │  REASONING  │    │VERIFICATION │               │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                                │                                            │
 │                                ▼                                            │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                        GENERATION STAGE                              │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
-│  │  │   ANSWER    │ →  │  CITATION   │ →  │   CRITIC    │               │  │
-│  │  │  SYNTHESIS  │    │  TRACKING   │    │ EVALUATION  │               │  │
-│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                        GENERATION STAGE                              │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │   ANSWER    │ →  │  CITATION   │ →  │   CRITIC    │               │   │
+│  │  │  SYNTHESIS  │    │  TRACKING   │    │ EVALUATION  │               │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                                │                                            │
 └────────────────────────────────┼────────────────────────────────────────────┘
                                  ▼
@@ -557,37 +557,37 @@ Radiant RAG includes 15+ specialized agents organized by pipeline stage:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  PLANNING STAGE                                                             │
-│  ├── PlanningAgent          Analyze query, select retrieval strategy       │
-│  └── StrategyMemoryAgent    Learn from successful retrieval patterns       │
+│  ├── PlanningAgent          Analyze query, select retrieval strategy        │
+│  └── StrategyMemoryAgent    Learn from successful retrieval patterns        │
 │                                                                             │
 │  QUERY PROCESSING STAGE                                                     │
-│  ├── QueryDecompositionAgent  Break complex queries into sub-queries       │
-│  ├── QueryRewriteAgent        Rewrite for clarity and precision            │
-│  └── QueryExpansionAgent      Add synonyms and related terms               │
+│  ├── QueryDecompositionAgent  Break complex queries into sub-queries        │
+│  ├── QueryRewriteAgent        Rewrite for clarity and precision             │
+│  └── QueryExpansionAgent      Add synonyms and related terms                │
 │                                                                             │
 │  RETRIEVAL STAGE                                                            │
-│  ├── DenseRetrievalAgent      Semantic search with embeddings              │
-│  ├── BM25RetrievalAgent       Keyword search with BM25                     │
-│  ├── WebSearchAgent           Real-time web search augmentation            │
-│  └── RRFAgent                 Reciprocal Rank Fusion of results            │
+│  ├── DenseRetrievalAgent      Semantic search with embeddings               │
+│  ├── BM25RetrievalAgent       Keyword search with BM25                      │
+│  ├── WebSearchAgent           Real-time web search augmentation             │
+│  └── RRFAgent                 Reciprocal Rank Fusion of results             │
 │                                                                             │
 │  POST-RETRIEVAL STAGE                                                       │
-│  ├── HierarchicalAutoMergingAgent  Merge child chunks to parents           │
-│  ├── CrossEncoderRerankingAgent    Rerank with cross-encoder model         │
-│  ├── ContextEvaluationAgent        Score relevance of retrieved docs       │
-│  ├── SummarizationAgent            Summarize long contexts                 │
-│  ├── MultiHopReasoningAgent        Multi-step reasoning chains             │
-│  └── FactVerificationAgent         Verify claims against context           │
+│  ├── HierarchicalAutoMergingAgent  Merge child chunks to parents            │
+│  ├── CrossEncoderRerankingAgent    Rerank with cross-encoder model          │
+│  ├── ContextEvaluationAgent        Score relevance of retrieved docs        │
+│  ├── SummarizationAgent            Summarize long contexts                  │
+│  ├── MultiHopReasoningAgent        Multi-step reasoning chains              │
+│  └── FactVerificationAgent         Verify claims against context            │
 │                                                                             │
 │  GENERATION STAGE                                                           │
-│  ├── AnswerSynthesisAgent          Generate final answer                   │
-│  ├── CitationTrackingAgent         Add source citations                    │
-│  └── CriticAgent                   Evaluate answer quality                 │
+│  ├── AnswerSynthesisAgent          Generate final answer                    │
+│  ├── CitationTrackingAgent         Add source citations                     │
+│  └── CriticAgent                   Evaluate answer quality                  │
 │                                                                             │
 │  INGESTION AGENTS                                                           │
-│  ├── IntelligentChunkingAgent      Semantic-aware chunking                 │
-│  ├── LanguageDetectionAgent        Detect document language                │
-│  └── TranslationAgent              Translate to canonical language         │
+│  ├── IntelligentChunkingAgent      Semantic-aware chunking                  │
+│  ├── LanguageDetectionAgent        Detect document language                 │
+│  └── TranslationAgent              Translate to canonical language          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -626,9 +626,9 @@ Query: "Compare BM25 and dense retrieval for RAG systems"
                         ┌───────────┴───────────┐
                         ▼                       ▼
 ┌───────────────────────────────┐ ┌───────────────────────────────┐
-│ 4a. DENSE RETRIEVAL AGENT    │ │ 4b. BM25 RETRIEVAL AGENT      │
-│     Embedding similarity      │ │     Keyword matching           │
-│     Returns: 10 documents     │ │     Returns: 10 documents      │
+│ 4a. DENSE RETRIEVAL AGENT     │ │ 4b. BM25 RETRIEVAL AGENT      │
+│     Embedding similarity      │ │     Keyword matching          │
+│     Returns: 10 documents     │ │     Returns: 10 documents     │
 └───────────────────────────────┘ └───────────────────────────────┘
                         │                       │
                         └───────────┬───────────┘
@@ -690,60 +690,60 @@ Query: "Compare BM25 and dense retrieval for RAG systems"
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  INPUT SOURCES                                                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Local     │  │    URLs     │  │   GitHub    │  │   Images    │        │
-│  │   Files     │  │  (Crawled)  │  │Repositories │  │   (VLM)     │        │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   Local     │  │    URLs     │  │   GitHub    │  │   Images    │         │
+│  │   Files     │  │  (Crawled)  │  │Repositories │  │   (VLM)     │         │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
 │         │                │                │                │                │
 │         └────────────────┼────────────────┼────────────────┘                │
 │                          ▼                ▼                                 │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                      DOCUMENT PROCESSOR                              │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │  │
-│  │  │   Parse     │→ │  Language   │→ │ Translation │                   │  │
-│  │  │  Document   │  │  Detection  │  │  (if needed)│                   │  │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘                   │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                      DOCUMENT PROCESSOR                              │   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │   │
+│  │  │   Parse     │→ │  Language   │→ │ Translation │                   │   │
+│  │  │  Document   │  │  Detection  │  │  (if needed)│                   │   │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘                   │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                         CHUNKING                                     │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │  │
-│  │  │  HIERARCHICAL MODE (default)                                    │ │  │
-│  │  │  ┌─────────────────────────────────────────────────────────┐    │ │  │
-│  │  │  │  Parent Document (2048 tokens)                          │    │ │  │
-│  │  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │    │ │  │
-│  │  │  │  │ Child 1  │  │ Child 2  │  │ Child 3  │  │ Child 4  │ │    │ │  │
-│  │  │  │  │ (512)    │  │ (512)    │  │ (512)    │  │ (512)    │ │    │ │  │
-│  │  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │    │ │  │
-│  │  │  └─────────────────────────────────────────────────────────┘    │ │  │
-│  │  └─────────────────────────────────────────────────────────────────┘ │  │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │  │
-│  │  │  CODE-AWARE MODE (for source files)                             │ │  │
-│  │  │  Chunks by: functions, classes, methods                         │ │  │
-│  │  │  Preserves: imports context, docstrings                         │ │  │
-│  │  └─────────────────────────────────────────────────────────────────┘ │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                         CHUNKING                                     │   │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
+│  │  │  HIERARCHICAL MODE (default)                                    │ │   │
+│  │  │  ┌─────────────────────────────────────────────────────────┐    │ │   │
+│  │  │  │  Parent Document (2048 tokens)                          │    │ │   │
+│  │  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │    │ │   │
+│  │  │  │  │ Child 1  │  │ Child 2  │  │ Child 3  │  │ Child 4  │ │    │ │   │
+│  │  │  │  │ (512)    │  │ (512)    │  │ (512)    │  │ (512)    │ │    │ │   │
+│  │  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │    │ │   │
+│  │  │  └─────────────────────────────────────────────────────────┘    │ │   │
+│  │  └─────────────────────────────────────────────────────────────────┘ │   │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
+│  │  │  CODE-AWARE MODE (for source files)                             │ │   │
+│  │  │  Chunks by: functions, classes, methods                         │ │   │
+│  │  │  Preserves: imports context, docstrings                         │ │   │
+│  │  └─────────────────────────────────────────────────────────────────┘ │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                       EMBEDDING                                      │  │
-│  │  ┌─────────────┐                                                     │  │
-│  │  │  Sentence   │  Batch processing for efficiency                    │  │
-│  │  │ Transformer │  Model: all-MiniLM-L12-v2 (384 dim)                 │  │
-│  │  └─────────────┘                                                     │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                       EMBEDDING                                      │   │
+│  │  ┌─────────────┐                                                     │   │
+│  │  │  Sentence   │  Batch processing for efficiency                    │   │
+│  │  │ Transformer │  Model: all-MiniLM-L12-v2 (384 dim)                 │   │
+│  │  └─────────────┘                                                     │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                        STORAGE                                       │  │
-│  │  ┌─────────────────────────┐  ┌─────────────────────────┐            │  │
-│  │  │  Redis Vector Store     │  │     BM25 Index          │            │  │
-│  │  │  - HNSW index           │  │  - Tokenized documents  │            │  │
-│  │  │  - Document metadata    │  │  - IDF values           │            │  │
-│  │  │  - Parent references    │  │  - Persistent storage   │            │  │
-│  │  └─────────────────────────┘  └─────────────────────────┘            │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                        STORAGE                                       │   │
+│  │  ┌─────────────────────────┐  ┌─────────────────────────┐            │   │
+│  │  │  Redis Vector Store     │  │     BM25 Index          │            │   │
+│  │  │  - HNSW index           │  │  - Tokenized documents  │            │   │
+│  │  │  - Document metadata    │  │  - IDF values           │            │   │
+│  │  │  - Parent references    │  │  - Persistent storage   │            │   │
+│  │  └─────────────────────────┘  └─────────────────────────┘            │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -837,43 +837,43 @@ python -m radiant ingest --url "https://github.com/owner/repo/tree/main"
 │  INPUT: https://github.com/owner/repo                                       │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ 1. URL PARSING                                                        │ │
-│  │    Extract: owner="owner", repo="repo", branch="main"                 │ │
-│  │    Strip: query strings (?tab=...), fragments (#...)                  │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 1. URL PARSING                                                        │  │
+│  │    Extract: owner="owner", repo="repo", branch="main"                 │  │
+│  │    Strip: query strings (?tab=...), fragments (#...)                  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ 2. FETCH README                                                       │ │
-│  │    URL: https://raw.githubusercontent.com/owner/repo/main/README.md   │ │
-│  │    Extract: markdown links to other files                             │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 2. FETCH README                                                       │  │
+│  │    URL: https://raw.githubusercontent.com/owner/repo/main/README.md   │  │
+│  │    Extract: markdown links to other files                             │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ 3. LIST REPOSITORY FILES (GitHub API)                                 │ │
-│  │    GET https://api.github.com/repos/owner/repo/contents/              │ │
-│  │    Filter by extensions: .py, .js, .md, .go, .rs, etc.                │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 3. LIST REPOSITORY FILES (GitHub API)                                 │  │
+│  │    GET https://api.github.com/repos/owner/repo/contents/              │  │
+│  │    Filter by extensions: .py, .js, .md, .go, .rs, etc.                │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ 4. FETCH FILE CONTENTS                                                │ │
-│  │    Raw URL: https://raw.githubusercontent.com/owner/repo/main/{path}  │ │
-│  │    Fetches clean text content (no HTML)                               │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 4. FETCH FILE CONTENTS                                                │  │
+│  │    Raw URL: https://raw.githubusercontent.com/owner/repo/main/{path}  │  │
+│  │    Fetches clean text content (no HTML)                               │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ 5. CONTENT-AWARE CHUNKING                                             │ │
-│  │    ┌─────────────────────────┐  ┌─────────────────────────┐           │ │
-│  │    │  Markdown Files         │  │  Code Files             │           │ │
-│  │    │  - Q&A pattern          │  │  - Functions/classes    │           │ │
-│  │    │  - Header sections      │  │  - Imports context      │           │ │
-│  │    │  - Paragraphs           │  │  - Docstrings           │           │ │
-│  │    └─────────────────────────┘  └─────────────────────────┘           │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 5. CONTENT-AWARE CHUNKING                                             │  │
+│  │    ┌─────────────────────────┐  ┌─────────────────────────┐           │  │
+│  │    │  Markdown Files         │  │  Code Files             │           │  │
+│  │    │  - Q&A pattern          │  │  - Functions/classes    │           │  │
+│  │    │  - Header sections      │  │  - Imports context      │           │  │
+│  │    │  - Paragraphs           │  │  - Docstrings           │           │  │
+│  │    └─────────────────────────┘  └─────────────────────────┘           │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
 │                    STORE IN INDEX                                           │
@@ -920,62 +920,62 @@ Instead of blindly splitting code by character count, Radiant RAG parses code st
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  INPUT: calculator.py                                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │  import math                                                          │ │
-│  │  from typing import List                                              │ │
-│  │                                                                       │ │
-│  │  class Calculator:                                                    │ │
-│  │      """A simple calculator."""                                       │ │
-│  │                                                                       │ │
-│  │      def add(self, a: float, b: float) -> float:                      │ │
-│  │          """Add two numbers."""                                       │ │
-│  │          return a + b                                                 │ │
-│  │                                                                       │ │
-│  │      def multiply(self, a: float, b: float) -> float:                 │ │
-│  │          """Multiply two numbers."""                                  │ │
-│  │          return a * b                                                 │ │
-│  │                                                                       │ │
-│  │  def helper(x: int) -> int:                                           │ │
-│  │      """Helper function."""                                           │ │
-│  │      return x * 2                                                     │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  import math                                                          │  │
+│  │  from typing import List                                              │  │
+│  │                                                                       │  │
+│  │  class Calculator:                                                    │  │
+│  │      """A simple calculator."""                                       │  │
+│  │                                                                       │  │
+│  │      def add(self, a: float, b: float) -> float:                      │  │
+│  │          """Add two numbers."""                                       │  │
+│  │          return a + b                                                 │  │
+│  │                                                                       │  │
+│  │      def multiply(self, a: float, b: float) -> float:                 │  │
+│  │          """Multiply two numbers."""                                  │  │
+│  │          return a * b                                                 │  │
+│  │                                                                       │  │
+│  │  def helper(x: int) -> int:                                           │  │
+│  │      """Helper function."""                                           │  │
+│  │      return x * 2                                                     │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ CODE PARSER (Python AST)                                              │ │
-│  │ Extracts:                                                             │ │
-│  │   - Imports block                                                     │ │
-│  │   - Class: Calculator                                                 │ │
-│  │   - Method: Calculator.add                                            │ │
-│  │   - Method: Calculator.multiply                                       │ │
-│  │   - Function: helper                                                  │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ CODE PARSER (Python AST)                                              │  │
+│  │ Extracts:                                                             │  │
+│  │   - Imports block                                                     │  │
+│  │   - Class: Calculator                                                 │  │
+│  │   - Method: Calculator.add                                            │  │
+│  │   - Method: Calculator.multiply                                       │  │
+│  │   - Function: helper                                                  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
 │  OUTPUT CHUNKS:                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ Chunk 1: Class Calculator                                             │ │
-│  │ ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │ │ File: calculator.py | class: Calculator | Language: python     │   │ │
-│  │ │                                                                 │   │ │
-│  │ │ Imports:                                                        │   │ │
-│  │ │ import math                                                     │   │ │
-│  │ │ from typing import List                                         │   │ │
-│  │ │                                                                 │   │ │
-│  │ │ Code:                                                           │   │ │
-│  │ │ class Calculator:                                               │   │ │
-│  │ │     """A simple calculator."""                                  │   │ │
-│  │ │     ...                                                         │   │ │
-│  │ └─────────────────────────────────────────────────────────────────┘   │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ Chunk 2: Method Calculator.add                                        │ │
-│  │ ┌─────────────────────────────────────────────────────────────────┐   │ │
-│  │ │ File: calculator.py | method: Calculator.add | Language: python│   │ │
-│  │ │ Imports: import math; from typing import List                   │   │ │
-│  │ │ Code: def add(self, a: float, b: float) -> float: ...           │   │ │
-│  │ └─────────────────────────────────────────────────────────────────┘   │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ Chunk 1: Class Calculator                                             │  │
+│  │ ┌─────────────────────────────────────────────────────────────────┐   │  │
+│  │ │ File: calculator.py | class: Calculator | Language: python      │   │  │
+│  │ │                                                                 │   │  │
+│  │ │ Imports:                                                        │   │  │
+│  │ │ import math                                                     │   │  │
+│  │ │ from typing import List                                         │   │  │
+│  │ │                                                                 │   │  │
+│  │ │ Code:                                                           │   │  │
+│  │ │ class Calculator:                                               │   │  │
+│  │ │     """A simple calculator."""                                  │   │  │
+│  │ │     ...                                                         │   │  │
+│  │ └─────────────────────────────────────────────────────────────────┘   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ Chunk 2: Method Calculator.add                                        │  │
+│  │ ┌─────────────────────────────────────────────────────────────────┐   │  │
+│  │ │ File: calculator.py | method: Calculator.add | Language: python │   │  │
+│  │ │ Imports: import math; from typing import List                   │   │  │
+│  │ │ Code: def add(self, a: float, b: float) -> float: ...           │   │  │
+│  │ └─────────────────────────────────────────────────────────────────┘   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1015,34 +1015,34 @@ language_detection:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  INPUT: Document in French                                                  │
-│  "L'apprentissage automatique est une branche de l'intelligence..."        │
+│  "L'apprentissage automatique est une branche de l'intelligence..."         │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ LANGUAGE DETECTION AGENT                                              │ │
-│  │ Method: FastText (0.1ms)                                              │ │
-│  │ Result: { language: "fr", confidence: 0.95 }                          │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ LANGUAGE DETECTION AGENT                                              │  │
+│  │ Method: FastText (0.1ms)                                              │  │
+│  │ Result: { language: "fr", confidence: 0.95 }                          │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ TRANSLATION AGENT                                                     │ │
-│  │ Method: LLM-based translation                                         │ │
-│  │ Source: French → Target: English (canonical)                          │ │
-│  │ Chunked at paragraph boundaries for long documents                    │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ TRANSLATION AGENT                                                     │  │
+│  │ Method: LLM-based translation                                         │  │
+│  │ Source: French → Target: English (canonical)                          │  │
+│  │ Chunked at paragraph boundaries for long documents                    │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                          │                                                  │
 │                          ▼                                                  │
 │  OUTPUT: Indexed Document                                                   │
-│  ┌───────────────────────────────────────────────────────────────────────┐ │
-│  │ content: "Machine learning is a branch of artificial intelligence..." │ │
-│  │ metadata:                                                             │ │
-│  │   language_code: "fr"                                                 │ │
-│  │   language_name: "French"                                             │ │
-│  │   was_translated: true                                                │ │
-│  │   original_content: "L'apprentissage automatique est..."              │ │
-│  │   translation_method: "llm"                                           │ │
-│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ content: "Machine learning is a branch of artificial intelligence..." │  │
+│  │ metadata:                                                             │  │
+│  │   language_code: "fr"                                                 │  │
+│  │   language_name: "French"                                             │  │
+│  │   was_translated: true                                                │  │
+│  │   original_content: "L'apprentissage automatique est..."              │  │
+│  │   translation_method: "llm"                                           │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1262,8 +1262,8 @@ radiant-rag/
 │   └── inspect_index.py
 │
 ├── docs/                       # Documentation
-│   ├── USER_MANUAL.md
-│   └── GITHUB_INDEXING_ISSUE.md
+│   └── USER_MANUAL.md
+│   
 │
 └── tests/                      # Test suite
     └── test_all.py
