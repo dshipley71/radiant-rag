@@ -2,61 +2,229 @@
 
 A production-quality Agentic Retrieval-Augmented Generation (RAG) system with multi-agent architecture, hybrid search, and professional reporting.
 
-## Features
+## Table of Contents
 
-### Core Capabilities
-- **Multi-agent Pipeline**: Planning, query processing, retrieval, post-retrieval, and generation stages
-- **Hybrid Retrieval**: Dense embedding search (HNSW) + BM25 sparse retrieval with RRF fusion
-- **Web Search Agent**: Real-time web augmentation during queries for current information
-- **Three Retrieval Modes**: Hybrid (default), Dense-only, BM25-only
-- **Hierarchical Document Model**: Parent documents with auto-merging of child chunks
-- **Cross-encoder Reranking**: Local model inference for accurate relevance scoring
-- **Conversation History**: Multi-turn conversation support with Redis persistence
-- **VLM Image Captioning**: Automatic image description using Qwen3-VL
-- **Professional Reports**: Export results to Markdown, HTML, JSON, or Text formats
-- **Critic Evaluation**: Quality assessment of generated answers
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [CLI Reference](#cli-reference)
+- [Configuration](#configuration)
+- [Agent Pipeline](#agent-pipeline)
+- [Ingestion Pipeline](#ingestion-pipeline)
+- [Query Pipeline](#query-pipeline)
+- [GitHub Repository Ingestion](#github-repository-ingestion)
+- [Code-Aware Chunking](#code-aware-chunking)
+- [Multilingual Support](#multilingual-support)
+- [Advanced Features](#advanced-features)
+- [API Reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
 
-### Production Features
-- **Batch Ingestion**: Configurable batch processing for embedding generation and Redis operations
-- Redis Vector Search with HNSW indexing
-- Persistent BM25 index with incremental updates
-- Batch embedding and Redis pipeline for fast ingestion
-- YAML configuration with environment variable overrides
-- Comprehensive logging with third-party noise suppression
+---
 
-### User Interfaces
-- **CLI Mode**: Full-featured command-line interface
-- **Textual TUI**: Rich terminal UI with real-time pipeline visualization
-- **Python API**: Programmatic access for integration
+## Overview
+
+Radiant RAG is an enterprise-grade retrieval-augmented generation system that combines:
+
+- **Multi-agent orchestration** for intelligent query processing
+- **Hybrid search** combining dense embeddings and BM25 sparse retrieval
+- **GitHub repository ingestion** with code-aware chunking
+- **Multilingual support** with automatic language detection and translation
+- **Professional reporting** in multiple formats
+
+### Key Features
+
+| Category | Features |
+|----------|----------|
+| **Retrieval** | Dense (HNSW), BM25, Hybrid (RRF fusion), Web Search |
+| **Agents** | 15+ specialized agents for planning, retrieval, post-processing |
+| **Ingestion** | Files, URLs, GitHub repos, with code-aware chunking |
+| **Languages** | 176 languages detected, LLM-based translation |
+| **Output** | Markdown, HTML, JSON, Text reports |
+| **Interfaces** | CLI, TUI (Textual), Python API |
+
+---
+
+## Architecture
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           RADIANT RAG SYSTEM                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │   CLI/TUI   │    │  Python API │    │   Config    │    │   Reports   │  │
+│  │  Interface  │    │   Access    │    │   (YAML)    │    │  Generator  │  │
+│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘  │
+│         │                  │                  │                  │         │
+│         └──────────────────┼──────────────────┼──────────────────┘         │
+│                            ▼                  ▼                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        RADIANT RAG APPLICATION                      │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
+│  │  │                      AGENTIC ORCHESTRATOR                     │  │   │
+│  │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │  │   │
+│  │  │  │Planning │→│ Query   │→│Retrieval│→│  Post-  │→│Generate │  │  │   │
+│  │  │  │  Stage  │ │Processing│ │  Stage  │ │Retrieval│ │  Stage  │  │  │   │
+│  │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘  │  │   │
+│  │  └───────────────────────────────────────────────────────────────┘  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                            │                  │                            │
+│         ┌──────────────────┼──────────────────┼──────────────────┐         │
+│         ▼                  ▼                  ▼                  ▼         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │    LLM      │    │   Redis     │    │    BM25     │    │   Local     │  │
+│  │   Client    │    │Vector Store │    │    Index    │    │   Models    │  │
+│  │  (Ollama)   │    │   (HNSW)    │    │ (Persistent)│    │(Embeddings) │  │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Diagram
+
+```
+                              USER QUERY
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            QUERY PIPELINE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐                                                            │
+│  │  PLANNING   │  Analyze query complexity, select retrieval strategy      │
+│  │    AGENT    │  Outputs: mode (hybrid/dense/bm25), decompose?, expand?   │
+│  └──────┬──────┘                                                            │
+│         │                                                                   │
+│         ▼                                                                   │
+│  ┌─────────────┐                                                            │
+│  │   QUERY     │  Decompose complex queries into sub-queries               │
+│  │DECOMPOSITION│  Example: "Compare X and Y" → ["What is X?", "What is Y?"]│
+│  └──────┬──────┘                                                            │
+│         │                                                                   │
+│         ▼                                                                   │
+│  ┌─────────────┐  ┌─────────────┐                                          │
+│  │   QUERY     │  │   QUERY     │  Rewrite for clarity, expand with        │
+│  │  REWRITE    │→ │  EXPANSION  │  synonyms and related terms              │
+│  └──────┬──────┘  └──────┬──────┘                                          │
+│         │                │                                                  │
+│         └───────┬────────┘                                                  │
+│                 ▼                                                           │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                         RETRIEVAL STAGE                              │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
+│  │  │   DENSE     │    │    BM25     │    │ WEB SEARCH  │               │  │
+│  │  │ RETRIEVAL   │    │ RETRIEVAL   │    │   (opt.)    │               │  │
+│  │  │ (Embeddings)│    │  (Keywords) │    │             │               │  │
+│  │  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘               │  │
+│  │         │                  │                  │                      │  │
+│  │         └──────────────────┼──────────────────┘                      │  │
+│  │                            ▼                                         │  │
+│  │                     ┌─────────────┐                                  │  │
+│  │                     │  RRF FUSION │  Reciprocal Rank Fusion          │  │
+│  │                     └──────┬──────┘                                  │  │
+│  └─────────────────────────────┼────────────────────────────────────────┘  │
+│                                ▼                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                      POST-RETRIEVAL STAGE                            │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
+│  │  │ AUTO-MERGE  │ →  │  RERANKING  │ →  │  CONTEXT    │               │  │
+│  │  │(Hierarchical)│    │(CrossEncoder)│    │ EVALUATION │               │  │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
+│  │         │                  │                  │                      │  │
+│  │         ▼                  ▼                  ▼                      │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
+│  │  │SUMMARIZATION│    │  MULTI-HOP  │    │    FACT     │               │  │
+│  │  │   (Long)    │    │  REASONING  │    │VERIFICATION │               │  │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                │                                            │
+│                                ▼                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                        GENERATION STAGE                              │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │  │
+│  │  │   ANSWER    │ →  │  CITATION   │ →  │   CRITIC    │               │  │
+│  │  │  SYNTHESIS  │    │  TRACKING   │    │ EVALUATION  │               │  │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                │                                            │
+└────────────────────────────────┼────────────────────────────────────────────┘
+                                 ▼
+                          FINAL RESPONSE
+                    (Answer + Citations + Score)
+```
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- Redis Stack (Redis + RediSearch module)
+- CUDA-capable GPU (optional, for faster inference)
+
+### Step 1: Install Redis Stack
+
+```bash
+# Using Docker (recommended)
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server
+
+# Or install locally (Ubuntu)
+curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+sudo apt-get update
+sudo apt-get install redis-stack-server
+```
+
+### Step 2: Install Radiant RAG
+
+```bash
+# Clone or extract the package
+cd radiant-rag
+
+# Install as package (recommended)
+pip install -e .
+
+# Or install dependencies directly
+pip install -r requirements.txt
+```
+
+### Step 3: Configure Environment
+
+```bash
+# Required: LLM endpoint (Ollama or compatible)
+export RADIANT_OLLAMA_OPENAI_BASE_URL="https://your-ollama-host/v1"
+export RADIANT_OLLAMA_OPENAI_API_KEY="your-api-key"
+
+# Optional: GitHub token for higher rate limits
+export GITHUB_TOKEN="ghp_your_token_here"
+
+# Optional: Redis connection (defaults to localhost:6379)
+export RADIANT_REDIS_HOST="localhost"
+export RADIANT_REDIS_PORT="6379"
+```
 
 ---
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# 1. Ingest local documents
+python -m radiant ingest ./documents/
 
-# Or install as package (recommended)
-pip install -e .
+# 2. Ingest from GitHub repository
+python -m radiant ingest --url "https://github.com/owner/repo"
 
-# Start Redis Stack
-docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server
+# 3. Query the system
+python -m radiant query "What is the main topic of these documents?"
 
-# Set environment variables
-export RADIANT_OLLAMA_OPENAI_BASE_URL="https://your-ollama-host/v1"
-export RADIANT_OLLAMA_OPENAI_API_KEY="your-api-key"
-
-# Ingest documents
-python -m radiant ingest ./docs/
-
-# Query
-python -m radiant query "What is in my documents?"
-
-# Interactive mode (CLI)
+# 4. Interactive mode
 python -m radiant interactive
 
-# Interactive mode (TUI - rich terminal interface)
+# 5. Interactive TUI mode
 python -m radiant interactive --tui
 ```
 
@@ -64,986 +232,982 @@ python -m radiant interactive --tui
 
 ## CLI Reference
 
-### Running the Application
+### Command Overview
 
-The application can be run in three ways:
-
-```bash
-# As a Python module (recommended)
+```
 python -m radiant <command> [options]
 
-# Via console script (after pip install -e .)
-radiant <command> [options]
-
-# Directly via app.py
-python radiant/app.py <command> [options]
+Commands:
+  ingest       Ingest documents from files, directories, or URLs
+  query        Query the RAG system with full pipeline
+  search       Search documents (retrieval only, no LLM)
+  interactive  Start interactive query mode
+  stats        Display system statistics
+  health       Check system health
+  clear        Clear all indexed documents
+  rebuild-bm25 Rebuild BM25 index from store
 ```
 
-### Ingest Documents
+### ingest
 
-Ingest files, directories, or URLs into the RAG system.
+Ingest documents from files, directories, or URLs.
 
 ```bash
-python -m radiant ingest <paths> [options]
-python -m radiant ingest --url <url> [options]
+python -m radiant ingest [paths...] [options]
 ```
 
-**Arguments:**
-- `paths` - One or more files or directories to ingest (optional if using --url)
-
 **Options:**
-| Option | Description |
-|--------|-------------|
-| `--flat` | Use flat storage instead of hierarchical parent/child |
-| `--url`, `-u` | URL to ingest (can be specified multiple times) |
-| `--crawl-depth N` | Crawl depth for URLs (0=no crawling, default from config) |
-| `--max-pages N` | Maximum pages to crawl (default from config) |
-| `--no-crawl` | Disable crawling, only fetch specified URLs |
-| `--auth USER:PASS` | Basic auth credentials for URL ingestion |
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--url URL` | `-u` | - | URL to ingest (repeatable) |
+| `--flat` | - | false | Use flat storage (no hierarchy) |
+| `--crawl-depth N` | - | config | Crawl depth for URLs |
+| `--max-pages N` | - | config | Maximum pages to crawl |
+| `--no-crawl` | - | false | Don't crawl, fetch single URL |
+| `--auth USER:PASS` | - | - | Basic auth for URL ingestion |
+| `--config PATH` | `-c` | config.yaml | Config file path |
 
 **Examples:**
 
 ```bash
-# Ingest a directory
-python -m radiant ingest ./documents/
+# Ingest local directory
+python -m radiant ingest ./docs/
 
-# Ingest multiple paths
-python -m radiant ingest ./docs/ ./reports/ ./manual.pdf
+# Ingest GitHub repository (auto-detected)
+python -m radiant ingest --url "https://github.com/owner/repo"
 
-# Ingest from a URL (with default crawling depth)
-python -m radiant ingest --url https://docs.example.com/guide/
+# Ingest website with crawling
+python -m radiant ingest --url "https://docs.example.com" --crawl-depth 3
 
-# Ingest multiple URLs
-python -m radiant ingest --url https://example.com/page1 --url https://example.com/page2
+# Ingest multiple sources
+python -m radiant ingest ./local/ --url "https://github.com/org/repo1" --url "https://github.com/org/repo2"
 
-# Mix local files and URLs
-python -m radiant ingest ./local_docs/ --url https://example.com/remote_docs/
-
-# Ingest URL without crawling (single page only)
-python -m radiant ingest --url https://example.com/page.html --no-crawl
-
-# Ingest URL with custom crawl depth
-python -m radiant ingest --url https://docs.example.com/ --crawl-depth 3
-
-# Ingest URL with authentication
-python -m radiant ingest --url https://internal.example.com/docs/ --auth admin:secret123
-
-# Flat storage (no parent/child hierarchy)
-python -m radiant ingest ./docs/ --flat
+# Ingest with authentication
+python -m radiant ingest --url "https://private.example.com" --auth "user:password"
 ```
 
-#### URL Ingestion Configuration
+### query
 
-URL crawling behavior is controlled in `config.yaml`:
-
-```yaml
-web_crawler:
-  # Maximum crawl depth (0 = seed URLs only)
-  max_depth: 2
-  
-  # Maximum pages to crawl per session
-  max_pages: 100
-  
-  # Only crawl same domain as seed URLs
-  same_domain_only: true
-  
-  # Delay between requests (rate limiting)
-  delay: 0.5
-  
-  # URL patterns to exclude
-  exclude_patterns:
-    - ".*\\.(jpg|jpeg|png|gif|css|js)$"
-    - ".*/login.*"
-```
-
-#### Batch Indexing Configuration
-
-For large document collections, batch processing significantly improves ingestion performance. Batching is enabled by default and can be tuned in `config.yaml`:
-
-```yaml
-ingestion:
-  # Enable batch processing (recommended for large corpora)
-  batch_enabled: true
-  
-  # Batch size for embedding generation
-  # Larger = faster but more memory. Recommended: 16-64 (GPU), 8-32 (CPU)
-  embedding_batch_size: 32
-  
-  # Batch size for Redis pipeline operations
-  # Larger = fewer network round trips. Recommended: 50-200
-  redis_batch_size: 100
-  
-  # Default chunk sizes for hierarchical storage
-  child_chunk_size: 512
-  child_chunk_overlap: 50
-  
-  # Show progress during ingestion
-  show_progress: true
-```
-
-**Performance Tips:**
-
-| Corpus Size | embedding_batch_size | redis_batch_size | Expected Speedup |
-|-------------|---------------------|------------------|------------------|
-| Small (<100 docs) | 16 | 50 | 2-3x |
-| Medium (100-1000 docs) | 32 | 100 | 5-10x |
-| Large (1000+ docs) | 64 | 200 | 10-20x |
-
-**Memory Considerations:**
-- Larger `embedding_batch_size` requires more GPU/CPU memory
-- Set `batch_enabled: false` for debugging or memory-constrained environments
-
----
-
-### Query
-
-Query the RAG system with full pipeline processing.
+Query the RAG system with full agentic pipeline.
 
 ```bash
 python -m radiant query "<question>" [options]
 ```
 
-**Arguments:**
-- `query` - Your question or query string
-
 **Options:**
-| Option | Description |
-|--------|-------------|
-| `--mode`, `-m` | Retrieval mode: `hybrid` (default), `dense`, `bm25` |
-| `--conversation`, `-conv` | Conversation ID for multi-turn history |
-| `--save`, `-s` | Save report to file (.md, .html, .json) |
-| `--compact` | Use compact display format |
-| `--simple` | Use simplified pipeline (faster, less features) |
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--mode MODE` | `-m` | hybrid | Retrieval mode: hybrid, dense, bm25 |
+| `--conversation ID` | `-conv` | - | Continue conversation by ID |
+| `--save PATH` | `-s` | - | Save report (.md, .html, .json, .txt) |
+| `--compact` | - | false | Compact display format |
+| `--simple` | - | false | Skip advanced agents (faster) |
 
 **Examples:**
 
 ```bash
 # Basic query
-python -m radiant query "What is Article I of the Constitution?"
+python -m radiant query "What is RAG?"
 
-# Use semantic search only
-python -m radiant query "meaning of liberty" --mode dense
+# Semantic search only
+python -m radiant query "meaning of retrieval augmentation" --mode dense
 
-# Use keyword search only
-python -m radiant query "Article I Section 8" --mode bm25
+# Keyword search only  
+python -m radiant query "BM25 algorithm" --mode bm25
 
-# Save report as Markdown
-python -m radiant query "Summarize the main points" --save report.md
+# Save report
+python -m radiant query "Summarize the architecture" --save report.md
 
-# Save as HTML (styled, printable)
-python -m radiant query "What are the key findings?" --save report.html
-
-# Save as JSON (for programmatic use)
-python -m radiant query "List all topics" --save results.json
-
-# Compact output
-python -m radiant query "Quick answer please" --compact
-
-# Continue a conversation
-python -m radiant query "Tell me more" --conversation abc123
-
-# Simple/fast mode (skips planning, decomposition, critic)
-python -m radiant query "Simple question" --simple
+# Continue conversation
+python -m radiant query "Tell me more about that" --conv abc123
 ```
 
----
+### search
 
-### Search (Retrieval Only)
-
-Search documents without LLM generation - pure retrieval for quick lookups.
+Search documents without LLM generation (retrieval only).
 
 ```bash
 python -m radiant search "<query>" [options]
 ```
 
 **Options:**
-| Option | Description |
-|--------|-------------|
-| `--mode`, `-m` | Retrieval mode: `hybrid` (default), `dense`, `bm25` |
-| `--top-k`, `-k` | Number of results (default: 10) |
-| `--save`, `-s` | Save results to file (.md, .json) |
 
-**Examples:**
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--mode MODE` | `-m` | hybrid | Retrieval mode |
+| `--top-k N` | `-k` | 10 | Number of results |
+| `--save PATH` | `-s` | - | Save results to file |
 
-```bash
-# Basic search
-python -m radiant search "constitution amendments"
+### clear
 
-# BM25 keyword search
-python -m radiant search "habeas corpus" --mode bm25
-
-# Get more results
-python -m radiant search "executive powers" --top-k 20
-
-# Semantic search with saved results
-python -m radiant search "freedom of speech" --mode dense --save search_results.md
-```
-
----
-
-### Interactive Mode
-
-Start an interactive session with conversation history and live commands.
+Clear all indexed documents.
 
 ```bash
-# Classic command-line mode
-python -m radiant interactive
-
-# Textual-based TUI (modern terminal interface)
-python -m radiant interactive --tui
+python -m radiant clear [options]
 ```
 
 **Options:**
-| Option | Description |
-|--------|-------------|
-| `--tui` | Use the Textual-based terminal UI |
-| `--classic` | Use classic command-line mode (default) |
 
-#### Classic Mode Commands
-
-| Command | Description |
-|---------|-------------|
-| `quit` or `exit` | Exit interactive mode |
-| `new` | Start a new conversation |
-| `stats` | Show system statistics |
-| `mode <MODE>` | Set retrieval mode (hybrid/dense/bm25) |
-| `save <PATH>` | Save last result to markdown/json |
-| `report <PATH>` | Save detailed text report |
-| `search <QUERY>` | Search without LLM generation |
-
-**Example Classic Session:**
-
-```
-━━━ Agentic RAG Interactive Mode ━━━
-
-Commands:
-  quit         Exit interactive mode
-  new          Start new conversation
-  stats        Show system statistics
-  mode MODE    Set retrieval mode (hybrid/dense/bm25)
-  save PATH    Save last result to file (markdown/json)
-  report PATH  Save detailed text report
-  search Q     Search without LLM generation
-
-Conversation: 23cc5826...
-
-[H]> What is Article I?
-[... answer displayed ...]
-
-[H]> What powers does it grant?
-[... follow-up answer with context ...]
-
-[H]> mode bm25
-Retrieval mode: bm25
-
-[B]> search executive branch
-[... search results displayed ...]
-
-[B]> save constitution_qa.html
-✓ Saved to: /path/to/constitution_qa.html
-
-[B]> report ./reports/detailed_report.txt
-✓ Text report saved to: /path/to/reports/detailed_report.txt
-
-[B]> new
-New conversation: 8f2a1b3c...
-
-[B]> quit
-Goodbye!
-```
-
-#### Textual TUI Mode
-
-The Textual TUI provides a rich terminal interface with:
-
-- **Query Input**: Enter questions and see real-time results
-- **Timeline Panel**: Visual execution trace of all pipeline steps
-- **Answer Panel**: Final answer with inline citations
-- **Tabbed Views**: Overview, Plan, Queries, Retrieval, Agents, Metrics, Logs
-
-**TUI Keybindings:**
-| Key | Action |
-|-----|--------|
-| `Ctrl+Q` | Quit the application |
-| `Ctrl+N` | Start new conversation |
-| `Ctrl+R` | Focus query input |
-| `Ctrl+S` | Save report to file |
-| `Escape` | Cancel current operation |
-
-**Example TUI Layout:**
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Agentic RAG Console                                                         │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  [ Ask a question about your knowledge base...                      ] [Run]  │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────┐   ┌─────────────────────────────────────────┐   │
-│  │ Run Timeline / Trace    │   │ Answer & Citations                      │   │
-│  │─────────────────────────│   │─────────────────────────────────────────│   │
-│  │ ● Planning         12ms │   │                                         │   │
-│  │ ● Query Decomp     45ms │   │ The answer to your question is...       │   │
-│  │ ● Dense Retrieval 210ms │   │                                         │   │
-│  │ ● BM25 Retrieval   85ms │   │ Citations:                              │   │
-│  │ ● Reranking       120ms │   │ [doc1] [doc2] [doc3]                    │   │
-│  │ ● Generation      450ms │   │                                         │   │
-│  └─────────────────────────┘   └─────────────────────────────────────────┘   │
-│                                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  [ Overview ] [ Plan ] [ Queries ] [ Retrieval ] [ Agents ] [ Metrics ]      │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### Statistics
-
-Display index and system statistics.
-
-```bash
-python -m radiant stats
-```
-
-**Output includes:**
-- Redis document count by level (parent/child)
-- Vector index status and dimensions
-- BM25 index statistics (documents, vocabulary size)
-- Source file summary
-
----
-
-### Health Check
-
-Check system connectivity and component status.
-
-```bash
-python -m radiant health
-```
-
-**Checks:**
-- Redis connection
-- Vector index availability
-- BM25 index status
-
----
-
-### Rebuild BM25 Index
-
-Rebuild the BM25 index from Redis store.
-
-```bash
-python -m radiant rebuild-bm25 [--limit N]
-```
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `--limit` | Maximum documents to index (0 = all) |
-
-**Examples:**
-
-```bash
-# Rebuild entire index
-python -m radiant rebuild-bm25
-
-# Rebuild with limit (for testing)
-python -m radiant rebuild-bm25 --limit 1000
-```
-
----
-
-## Python API
-
-### Basic Usage
-
-```python
-from radiant.app import RadiantRAG
-
-# Initialize
-app = RadiantRAG(config_path="config.yaml")
-
-# Ingest documents
-stats = app.ingest_documents(
-    paths=["./docs/"],
-    use_hierarchical=True,
-    skip_vlm=False,
-)
-print(f"Ingested {stats['documents_stored']} documents")
-
-# Query
-result = app.query("What is machine learning?")
-print(result.answer)
-
-# Query with options
-result = app.query(
-    "Explain neural networks",
-    retrieval_mode="dense",
-    save_path="report.html",
-)
-```
-
-### Search Without LLM
-
-```python
-# Pure retrieval - no LLM generation
-results = app.search(
-    query="neural networks",
-    mode="hybrid",
-    top_k=10,
-)
-
-for doc, score in results:
-    print(f"{score:.3f}: {doc.content[:100]}...")
-```
-
-### Conversation History
-
-```python
-# Start conversation
-conv_id = app.start_conversation()
-
-# Multi-turn queries
-result1 = app.query("What is Python?", conversation_id=conv_id)
-result2 = app.query("How does it compare to Java?", conversation_id=conv_id)
-result3 = app.query("Which should I learn first?", conversation_id=conv_id)
-```
-
-### Report Generation
-
-```python
-from radiant.ui.reports.report import QueryReport, save_report
-from radiant.ui.reports.text import generate_text_report, save_text_report
-
-# Generate report from result
-report = QueryReport.from_pipeline_result(result, retrieval_mode="hybrid")
-
-# Save in different formats
-save_report(report, "report.md")      # Markdown
-save_report(report, "report.html")    # Styled HTML
-save_report(report, "report.json")    # JSON data
-
-# Generate detailed text report (similar to enterprise run reports)
-text_report = generate_text_report(result, retrieval_mode="hybrid")
-save_text_report(result, "detailed_report.txt")
-```
-
-#### Text Report Format
-
-The text report provides a comprehensive, enterprise-style run report with:
-
-```
-================================================================================
-AGENTIC RAG RUN REPORT
-================================================================================
-
-Run ID        : rag-run-2025-01-15-10-30-45
-Timestamp     : 2025-01-15 10:30:45
-Environment   : production
-User          : anonymous (role=user)
-Workspace     : default
-
---------------------------------------------------------------------------------
-1. USER QUERY
---------------------------------------------------------------------------------
-
-Original Query
---------------
-"How does the system handle document retrieval?"
-
-...
-
---------------------------------------------------------------------------------
-3. HIGH-LEVEL METRICS
---------------------------------------------------------------------------------
-
-Status              : SUCCESS
-Total Latency       : 1.25 s
-Steps Executed      : 6
-Documents Retrieved : 45 (pre-rerank)
-Documents in Context: 5
-Answer Confidence   : 0.87 (0–1)
-Guardrails          : PASSED
-
-...
-================================================================================
-END OF REPORT
-================================================================================
-```
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--confirm` | false | Skip confirmation prompt |
+| `--keep-bm25` | false | Keep BM25 index |
 
 ---
 
 ## Configuration
 
-### Environment Variables
-
-```bash
-# Required: LLM endpoint
-export RADIANT_OLLAMA_OPENAI_BASE_URL="https://your-ollama-host/v1"
-export RADIANT_OLLAMA_OPENAI_API_KEY="your-api-key"
-
-# Optional: Override any config value
-export RADIANT_REDIS_URL="redis://localhost:6379"
-export RADIANT_LOCAL_MODELS_DEVICE="cuda"
-```
-
 ### Configuration File (config.yaml)
 
+The system is configured via `config.yaml`. All settings can be overridden with environment variables prefixed with `RADIANT_`.
+
+### Core Settings
+
 ```yaml
-# LLM Settings
-ollama:
-  model: "gemma3:12b"
-  temperature: 0.2
-  max_tokens: 2048
+# LLM Configuration
+llm:
+  # Chat model for generation
+  model: "gemma3:12b-cloud"
+  
+  # Temperature (0.0 = deterministic, 1.0 = creative)
+  temperature: 0.3
+  
+  # Maximum tokens in response
+  max_tokens: 4096
 
-# Local Models (embedding, reranking)
-local_models:
-  device: "auto"  # auto, cpu, cuda
-  embedding_model: "sentence-transformers/all-MiniLM-L12-v2"
-  cross_encoder_model: "cross-encoder/ms-marco-MiniLM-L12-v2"
+# Embedding Models
+embeddings:
+  # Sentence transformer model
+  model: "sentence-transformers/all-MiniLM-L12-v2"
+  
+  # Embedding dimension (must match model)
+  dimension: 384
 
-# Redis Settings
-redis:
-  url: "redis://localhost:6379"
-  vector_index:
-    name: "radiant_vectors"
-    distance_metric: "COSINE"
-    hnsw_m: 16
-    hnsw_ef_construction: 200
-
-# Retrieval Settings
-retrieval:
-  dense_top_k: 20
-  bm25_top_k: 20
-  rrf_k: 60
-
-# VLM Image Captioning
-vlm:
+# Reranking Model  
+reranking:
+  model: "cross-encoder/ms-marco-MiniLM-L12-v2"
   enabled: true
-  model: "Qwen/Qwen3-VL-8B-Instruct"
-  max_new_tokens: 512
+  top_k: 5
+```
 
-# Logging
-logging:
-  quiet_third_party: true  # Suppress noisy library logs
+### Retrieval Settings
+
+```yaml
+retrieval:
+  # Default retrieval mode
+  default_mode: "hybrid"  # hybrid, dense, bm25
+  
+  # Number of documents to retrieve
+  top_k: 10
+  
+  # Dense retrieval settings
+  dense:
+    # Number of candidates for HNSW
+    ef_runtime: 200
+  
+  # BM25 settings
+  bm25:
+    k1: 1.5    # Term frequency saturation
+    b: 0.75   # Length normalization
+  
+  # RRF fusion settings
+  rrf:
+    k: 60     # RRF constant (higher = more weight to lower ranks)
+```
+
+### Ingestion Settings
+
+```yaml
+ingestion:
+  # Batch processing
+  batch_enabled: true
+  embedding_batch_size: 32  # Larger = faster, more memory
+  redis_batch_size: 100
+  
+  # Chunking
+  child_chunk_size: 512
+  child_chunk_overlap: 50
+  
+  # Parent document settings (hierarchical mode)
+  parent_chunk_size: 2048
+  
+  # Progress display
+  show_progress: true
+```
+
+### Web Crawler Settings
+
+```yaml
+web_crawler:
+  # Maximum crawl depth (0 = seed URLs only)
+  max_depth: 2
+  
+  # Maximum pages per crawl session
+  max_pages: 100
+  
+  # Stay on same domain
+  same_domain_only: true
+  
+  # Rate limiting (seconds between requests)
+  delay: 0.5
+  
+  # Request timeout
+  timeout: 30
+  
+  # URL patterns to exclude
+  exclude_patterns:
+    - ".*\\.(jpg|jpeg|png|gif|css|js)$"
+    - ".*/login.*"
+    - ".*/logout.*"
+```
+
+### GitHub Crawler Settings
+
+```yaml
+github_crawler:
+  # Maximum files to fetch per repository
+  max_files: 200
+  
+  # Rate limiting delay
+  delay: 0.5
+  
+  # File extensions to include
+  include_extensions:
+    # Documentation
+    - ".md"
+    - ".txt"
+    - ".rst"
+    # Code
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".java"
+    - ".go"
+    - ".rs"
+```
+
+### Agent Settings
+
+```yaml
+# Planning Agent
+planning:
+  enabled: true
+  
+# Query Processing
+query_decomposition:
+  enabled: true
+  max_sub_queries: 5
+
+query_expansion:
+  enabled: true
+  max_expansions: 3
+
+# Post-Retrieval
+context_evaluation:
+  enabled: true
+  min_relevance_score: 0.3
+
+summarization:
+  enabled: true
+  max_context_length: 8000
+
+multihop_reasoning:
+  enabled: true
+  max_hops: 3
+
+fact_verification:
+  enabled: true
+  min_confidence: 0.7
+
+# Generation
+citation:
+  enabled: true
+  style: "inline"  # inline, footnote, academic, enterprise
+
+critic:
+  enabled: true
+  min_confidence: 0.6
+```
+
+### Environment Variable Overrides
+
+All configuration values can be overridden with environment variables:
+
+```bash
+# Pattern: RADIANT_<SECTION>_<KEY>
+export RADIANT_LLM_MODEL="llama3:8b"
+export RADIANT_LLM_TEMPERATURE="0.5"
+export RADIANT_RETRIEVAL_TOP_K="20"
+export RADIANT_INGESTION_EMBEDDING_BATCH_SIZE="64"
 ```
 
 ---
 
-## Retrieval Modes Explained
+## Agent Pipeline
+
+### Agent Inventory
+
+Radiant RAG includes 15+ specialized agents organized by pipeline stage:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              AGENT INVENTORY                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PLANNING STAGE                                                             │
+│  ├── PlanningAgent          Analyze query, select retrieval strategy       │
+│  └── StrategyMemoryAgent    Learn from successful retrieval patterns       │
+│                                                                             │
+│  QUERY PROCESSING STAGE                                                     │
+│  ├── QueryDecompositionAgent  Break complex queries into sub-queries       │
+│  ├── QueryRewriteAgent        Rewrite for clarity and precision            │
+│  └── QueryExpansionAgent      Add synonyms and related terms               │
+│                                                                             │
+│  RETRIEVAL STAGE                                                            │
+│  ├── DenseRetrievalAgent      Semantic search with embeddings              │
+│  ├── BM25RetrievalAgent       Keyword search with BM25                     │
+│  ├── WebSearchAgent           Real-time web search augmentation            │
+│  └── RRFAgent                 Reciprocal Rank Fusion of results            │
+│                                                                             │
+│  POST-RETRIEVAL STAGE                                                       │
+│  ├── HierarchicalAutoMergingAgent  Merge child chunks to parents           │
+│  ├── CrossEncoderRerankingAgent    Rerank with cross-encoder model         │
+│  ├── ContextEvaluationAgent        Score relevance of retrieved docs       │
+│  ├── SummarizationAgent            Summarize long contexts                 │
+│  ├── MultiHopReasoningAgent        Multi-step reasoning chains             │
+│  └── FactVerificationAgent         Verify claims against context           │
+│                                                                             │
+│  GENERATION STAGE                                                           │
+│  ├── AnswerSynthesisAgent          Generate final answer                   │
+│  ├── CitationTrackingAgent         Add source citations                    │
+│  └── CriticAgent                   Evaluate answer quality                 │
+│                                                                             │
+│  INGESTION AGENTS                                                           │
+│  ├── IntelligentChunkingAgent      Semantic-aware chunking                 │
+│  ├── LanguageDetectionAgent        Detect document language                │
+│  └── TranslationAgent              Translate to canonical language         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Execution Flow
+
+```
+Query: "Compare BM25 and dense retrieval for RAG systems"
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. PLANNING AGENT                                                           │
+│    Input:  "Compare BM25 and dense retrieval for RAG systems"               │
+│    Output: { mode: "hybrid", decompose: true, expand: true }                │
+│    Reason: Comparison query needs both keyword (BM25) and semantic (dense)  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. QUERY DECOMPOSITION AGENT                                                │
+│    Input:  "Compare BM25 and dense retrieval for RAG systems"               │
+│    Output: [                                                                │
+│      "What is BM25 retrieval?",                                             │
+│      "What is dense retrieval with embeddings?",                            │
+│      "How do BM25 and dense retrieval compare for RAG?"                     │
+│    ]                                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. QUERY EXPANSION AGENT                                                    │
+│    Input:  "What is BM25 retrieval?"                                        │
+│    Output: "BM25 retrieval sparse lexical keyword term frequency TF-IDF"    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                        ┌───────────┴───────────┐
+                        ▼                       ▼
+┌───────────────────────────────┐ ┌───────────────────────────────┐
+│ 4a. DENSE RETRIEVAL AGENT    │ │ 4b. BM25 RETRIEVAL AGENT      │
+│     Embedding similarity      │ │     Keyword matching           │
+│     Returns: 10 documents     │ │     Returns: 10 documents      │
+└───────────────────────────────┘ └───────────────────────────────┘
+                        │                       │
+                        └───────────┬───────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. RRF FUSION AGENT                                                         │
+│    Combines dense + BM25 results with Reciprocal Rank Fusion                │
+│    Output: 15 unique documents, ranked by combined score                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6. CROSS-ENCODER RERANKING AGENT                                            │
+│    Reranks with query-document cross-encoder                                │
+│    Output: Top 5 documents with refined scores                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7. CONTEXT EVALUATION AGENT                                                 │
+│    Scores: [0.92, 0.87, 0.81, 0.76, 0.54]                                   │
+│    Filters: Documents with score < 0.3 removed                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 8. ANSWER SYNTHESIS AGENT                                                   │
+│    Generates comprehensive answer from context                              │
+│    Output: "BM25 is a sparse retrieval method that uses term frequency..."  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 9. CITATION TRACKING AGENT                                                  │
+│    Adds inline citations: "BM25 uses term frequency [1] and..."             │
+│    Generates bibliography with source documents                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 10. CRITIC AGENT                                                            │
+│     Evaluates: Completeness (0.85), Accuracy (0.90), Relevance (0.88)       │
+│     Overall confidence: 0.87                                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+                            FINAL RESPONSE
+```
+
+---
+
+## Ingestion Pipeline
+
+### Document Ingestion Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          INGESTION PIPELINE                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  INPUT SOURCES                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   Local     │  │    URLs     │  │   GitHub    │  │   Images    │        │
+│  │   Files     │  │  (Crawled)  │  │Repositories │  │   (VLM)     │        │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+│         │                │                │                │                │
+│         └────────────────┼────────────────┼────────────────┘                │
+│                          ▼                ▼                                 │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                      DOCUMENT PROCESSOR                              │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │  │
+│  │  │   Parse     │→ │  Language   │→ │ Translation │                   │  │
+│  │  │  Document   │  │  Detection  │  │  (if needed)│                   │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘                   │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                         CHUNKING                                     │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │  │
+│  │  │  HIERARCHICAL MODE (default)                                    │ │  │
+│  │  │  ┌─────────────────────────────────────────────────────────┐    │ │  │
+│  │  │  │  Parent Document (2048 tokens)                          │    │ │  │
+│  │  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │    │ │  │
+│  │  │  │  │ Child 1  │  │ Child 2  │  │ Child 3  │  │ Child 4  │ │    │ │  │
+│  │  │  │  │ (512)    │  │ (512)    │  │ (512)    │  │ (512)    │ │    │ │  │
+│  │  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │    │ │  │
+│  │  │  └─────────────────────────────────────────────────────────┘    │ │  │
+│  │  └─────────────────────────────────────────────────────────────────┘ │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │  │
+│  │  │  CODE-AWARE MODE (for source files)                             │ │  │
+│  │  │  Chunks by: functions, classes, methods                         │ │  │
+│  │  │  Preserves: imports context, docstrings                         │ │  │
+│  │  └─────────────────────────────────────────────────────────────────┘ │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                       EMBEDDING                                      │  │
+│  │  ┌─────────────┐                                                     │  │
+│  │  │  Sentence   │  Batch processing for efficiency                    │  │
+│  │  │ Transformer │  Model: all-MiniLM-L12-v2 (384 dim)                 │  │
+│  │  └─────────────┘                                                     │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                        STORAGE                                       │  │
+│  │  ┌─────────────────────────┐  ┌─────────────────────────┐            │  │
+│  │  │  Redis Vector Store     │  │     BM25 Index          │            │  │
+│  │  │  - HNSW index           │  │  - Tokenized documents  │            │  │
+│  │  │  - Document metadata    │  │  - IDF values           │            │  │
+│  │  │  - Parent references    │  │  - Persistent storage   │            │  │
+│  │  └─────────────────────────┘  └─────────────────────────┘            │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Supported File Types
+
+| Type | Extensions | Processing |
+|------|------------|------------|
+| **Text** | `.txt`, `.md`, `.rst` | Direct text extraction |
+| **Documents** | `.pdf`, `.docx`, `.doc` | Unstructured library |
+| **Web** | `.html`, `.htm` | BeautifulSoup parsing |
+| **Code** | `.py`, `.js`, `.java`, etc. | Code-aware chunking |
+| **Data** | `.json`, `.yaml`, `.csv` | Structured extraction |
+| **Images** | `.png`, `.jpg`, `.jpeg` | VLM captioning |
+
+---
+
+## Query Pipeline
+
+### Retrieval Modes
 
 | Mode | Description | Best For |
 |------|-------------|----------|
-| `hybrid` | Combines dense + BM25 with RRF fusion | General use, best overall accuracy |
-| `dense` | Semantic embedding search only | Conceptual queries, paraphrasing |
-| `bm25` | Keyword/term matching only | Exact terms, names, codes |
+| **hybrid** | Dense + BM25 with RRF fusion | General queries (default) |
+| **dense** | Semantic embedding similarity | Conceptual/meaning-based queries |
+| **bm25** | Keyword/term matching | Exact term lookups, technical queries |
 
-**Examples:**
+### Hybrid Retrieval Flow
 
-```bash
-# Hybrid (default) - combines both methods
-python -m radiant query "What are the main themes discussed?"
-
-# Dense - semantic similarity
-python -m radiant query "freedom and liberty concepts" --mode dense
-
-# BM25 - exact keyword matching
-python -m radiant query "Section 8 Clause 3" --mode bm25
+```
+                         Query: "machine learning optimization"
+                                        │
+                    ┌───────────────────┴───────────────────┐
+                    ▼                                       ▼
+        ┌───────────────────────┐               ┌───────────────────────┐
+        │   DENSE RETRIEVAL     │               │   BM25 RETRIEVAL      │
+        │   (Semantic)          │               │   (Lexical)           │
+        ├───────────────────────┤               ├───────────────────────┤
+        │ 1. Doc A (0.89)       │               │ 1. Doc C (12.4)       │
+        │ 2. Doc B (0.85)       │               │ 2. Doc A (11.2)       │
+        │ 3. Doc D (0.82)       │               │ 3. Doc E (10.8)       │
+        │ 4. Doc C (0.78)       │               │ 4. Doc B (9.5)        │
+        │ 5. Doc E (0.71)       │               │ 5. Doc F (8.2)        │
+        └───────────────────────┘               └───────────────────────┘
+                    │                                       │
+                    └───────────────────┬───────────────────┘
+                                        ▼
+                    ┌───────────────────────────────────────────┐
+                    │         RRF FUSION (k=60)                 │
+                    ├───────────────────────────────────────────┤
+                    │  RRF_score(d) = Σ 1/(k + rank(d))         │
+                    │                                           │
+                    │  Doc A: 1/61 + 1/62 = 0.0326 (rank 1)     │
+                    │  Doc C: 1/64 + 1/61 = 0.0320 (rank 2)     │
+                    │  Doc B: 1/62 + 1/64 = 0.0318 (rank 3)     │
+                    │  Doc E: 1/65 + 1/63 = 0.0312 (rank 4)     │
+                    │  Doc D: 1/63 + 0    = 0.0159 (rank 5)     │
+                    └───────────────────────────────────────────┘
+                                        │
+                                        ▼
+                    ┌───────────────────────────────────────────┐
+                    │       CROSS-ENCODER RERANKING             │
+                    ├───────────────────────────────────────────┤
+                    │  Query-document relevance scoring         │
+                    │  Final ranking: [Doc A, Doc B, Doc C...]  │
+                    └───────────────────────────────────────────┘
 ```
 
 ---
 
-## Report Formats
+## GitHub Repository Ingestion
 
-### Markdown (.md)
-Clean, readable format for documentation.
+### Automatic Detection
+
+Radiant RAG automatically detects GitHub URLs and uses specialized processing:
 
 ```bash
-python -m radiant query "Summarize findings" --save report.md
+# These all work the same way:
+python -m radiant ingest --url "https://github.com/owner/repo"
+python -m radiant ingest --url "https://github.com/owner/repo?tab=readme-ov-file"
+python -m radiant ingest --url "https://github.com/owner/repo/tree/main"
 ```
 
-### HTML (.html)
-Styled, printable format with CSS.
+### GitHub Crawler Flow
 
-```bash
-python -m radiant query "Executive summary" --save report.html
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        GITHUB CRAWLER PIPELINE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  INPUT: https://github.com/owner/repo                                       │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 1. URL PARSING                                                        │ │
+│  │    Extract: owner="owner", repo="repo", branch="main"                 │ │
+│  │    Strip: query strings (?tab=...), fragments (#...)                  │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 2. FETCH README                                                       │ │
+│  │    URL: https://raw.githubusercontent.com/owner/repo/main/README.md   │ │
+│  │    Extract: markdown links to other files                             │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 3. LIST REPOSITORY FILES (GitHub API)                                 │ │
+│  │    GET https://api.github.com/repos/owner/repo/contents/              │ │
+│  │    Filter by extensions: .py, .js, .md, .go, .rs, etc.                │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 4. FETCH FILE CONTENTS                                                │ │
+│  │    Raw URL: https://raw.githubusercontent.com/owner/repo/main/{path}  │ │
+│  │    Fetches clean text content (no HTML)                               │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ 5. CONTENT-AWARE CHUNKING                                             │ │
+│  │    ┌─────────────────────────┐  ┌─────────────────────────┐           │ │
+│  │    │  Markdown Files         │  │  Code Files             │           │ │
+│  │    │  - Q&A pattern          │  │  - Functions/classes    │           │ │
+│  │    │  - Header sections      │  │  - Imports context      │           │ │
+│  │    │  - Paragraphs           │  │  - Docstrings           │           │ │
+│  │    └─────────────────────────┘  └─────────────────────────┘           │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│                    STORE IN INDEX                                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### JSON (.json)
-Structured data for programmatic use.
+### Supported File Types
+
+| Category | Extensions |
+|----------|------------|
+| **Documentation** | `.md`, `.txt`, `.rst`, `.mdx` |
+| **Python** | `.py`, `.pyw`, `.pyx` |
+| **JavaScript/TypeScript** | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs` |
+| **Java/JVM** | `.java`, `.kt`, `.kts`, `.scala` |
+| **Systems** | `.go`, `.rs`, `.c`, `.h`, `.cpp`, `.cc`, `.hpp`, `.cs` |
+| **Scripting** | `.rb`, `.php`, `.swift`, `.r` |
+| **Shell** | `.sh`, `.bash`, `.zsh` |
+| **Config/Data** | `.yaml`, `.yml`, `.json`, `.toml`, `.sql` |
+
+### Rate Limiting
+
+| Authentication | Rate Limit |
+|----------------|------------|
+| No token | 60 requests/hour |
+| With `GITHUB_TOKEN` | 5,000 requests/hour |
 
 ```bash
-python -m radiant query "List all items" --save data.json
+# Set GitHub token for higher rate limits
+export GITHUB_TOKEN="ghp_your_token_here"
 ```
 
 ---
 
-## Performance Tips
+## Code-Aware Chunking
 
-### Fast Ingestion
+### How It Works
 
-```bash
-# Skip VLM captioning (images get placeholder text)
-python -m radiant ingest ./docs/ --skip-vlm
+Instead of blindly splitting code by character count, Radiant RAG parses code structure:
 
-# Skip images entirely
-python -m radiant ingest ./docs/ --skip-images
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       CODE-AWARE CHUNKING                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  INPUT: calculator.py                                                       │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │  import math                                                          │ │
+│  │  from typing import List                                              │ │
+│  │                                                                       │ │
+│  │  class Calculator:                                                    │ │
+│  │      """A simple calculator."""                                       │ │
+│  │                                                                       │ │
+│  │      def add(self, a: float, b: float) -> float:                      │ │
+│  │          """Add two numbers."""                                       │ │
+│  │          return a + b                                                 │ │
+│  │                                                                       │ │
+│  │      def multiply(self, a: float, b: float) -> float:                 │ │
+│  │          """Multiply two numbers."""                                  │ │
+│  │          return a * b                                                 │ │
+│  │                                                                       │ │
+│  │  def helper(x: int) -> int:                                           │ │
+│  │      """Helper function."""                                           │ │
+│  │      return x * 2                                                     │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ CODE PARSER (Python AST)                                              │ │
+│  │ Extracts:                                                             │ │
+│  │   - Imports block                                                     │ │
+│  │   - Class: Calculator                                                 │ │
+│  │   - Method: Calculator.add                                            │ │
+│  │   - Method: Calculator.multiply                                       │ │
+│  │   - Function: helper                                                  │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  OUTPUT CHUNKS:                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ Chunk 1: Class Calculator                                             │ │
+│  │ ┌─────────────────────────────────────────────────────────────────┐   │ │
+│  │ │ File: calculator.py | class: Calculator | Language: python     │   │ │
+│  │ │                                                                 │   │ │
+│  │ │ Imports:                                                        │   │ │
+│  │ │ import math                                                     │   │ │
+│  │ │ from typing import List                                         │   │ │
+│  │ │                                                                 │   │ │
+│  │ │ Code:                                                           │   │ │
+│  │ │ class Calculator:                                               │   │ │
+│  │ │     """A simple calculator."""                                  │   │ │
+│  │ │     ...                                                         │   │ │
+│  │ └─────────────────────────────────────────────────────────────────┘   │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ Chunk 2: Method Calculator.add                                        │ │
+│  │ ┌─────────────────────────────────────────────────────────────────┐   │ │
+│  │ │ File: calculator.py | method: Calculator.add | Language: python│   │ │
+│  │ │ Imports: import math; from typing import List                   │   │ │
+│  │ │ Code: def add(self, a: float, b: float) -> float: ...           │   │ │
+│  │ └─────────────────────────────────────────────────────────────────┘   │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Ingestion Time Comparison
+### Language Support
 
-| Method | ~25 pages + 2 images |
-|--------|---------------------|
-| Full VLM captioning | ~10-20 minutes |
-| `--skip-vlm` | ~30-60 seconds |
-| `--skip-images` | ~20-40 seconds |
-
-### Quick Queries
-
-```bash
-# Simple mode skips planning, decomposition, critic
-python -m radiant query "Quick question" --simple
-
-# Search only (no LLM generation)
-python -m radiant search "keyword lookup"
-```
+| Language | Parsing Method | Block Types |
+|----------|---------------|-------------|
+| **Python** | AST (full) | classes, functions, methods, imports |
+| **JavaScript/TypeScript** | Regex | classes, functions, arrow functions, imports |
+| **Java** | Regex | classes, methods, imports |
+| **Go** | Regex | types, functions, imports |
+| **Rust** | Regex | structs, impl blocks, functions, use statements |
+| **Others** | Fallback | Whole file as single chunk |
 
 ---
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        RAG Pipeline                             │
-├─────────────────────────────────────────────────────────────────┤
-│  Query Processing                                               │
-│  ┌──────────┐ ┌─────────────┐ ┌──────────┐ ┌───────────────┐    │
-│  │ Planning │→│ Decompose   │→│ Rewrite  │→│ Expansion     │    │
-│  └──────────┘ └─────────────┘ └──────────┘ └───────────────┘    │
-├─────────────────────────────────────────────────────────────────┤
-│  Retrieval (configurable mode)                                  │
-│  ┌──────────────────┐   ┌──────────────────┐   ┌────────────┐   │
-│  │ Dense (HNSW)     │   │ BM25 (Sparse)    │   │ Web Search │   │
-│  └────────┬─────────┘   └────────┬─────────┘   └─────┬──────┘   │
-│           └──────────────────────┼───────────────────┘          │
-│                            ┌─────┴─────┐                        │
-│                            │ RRF Fusion│                        │
-│                            └───────────┘                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Post-Retrieval                                                 │
-│  ┌───────────────┐     ┌────────────────────┐                   │
-│  │ Auto-Merge    │────→│ Cross-Encoder      │                   │
-│  │ (Hierarchical)│     │ Reranking          │                   │
-│  └───────────────┘     └────────────────────┘                   │
-├─────────────────────────────────────────────────────────────────┤
-│  Generation                                                     │
-│  ┌────────────────────┐     ┌─────────────────┐                 │
-│  │ Answer Synthesis   │────→│ Critic Agent    │                 │
-│  │ + History          │     │ (Quality Check) │                 │
-│  └────────────────────┘     └─────────────────┘                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Web Search Agent (Optional)
-
-When enabled, the **WebSearchAgent** provides real-time web augmentation:
-
-- **Trigger Keywords**: Queries with "latest", "recent", "news", etc. trigger search
-- **LLM URL Suggestion**: Uses LLM to suggest relevant URLs to fetch
-- **Content Extraction**: Parses HTML, removes scripts/styles, extracts text
-- **RRF Fusion**: Web results merge with indexed content via RRF
-
-Enable in `config.yaml`:
-```yaml
-web_search:
-  enabled: true    # Default: false
-  max_pages: 3
-  trigger_keywords:
-    - "latest"
-    - "recent"
-    - "news"
-```
-
----
-
-## Agentic Enhancements
-
-The system includes several agentic capabilities that enable self-improvement and adaptive behavior:
-
-### Critic-Driven Retry Loop
-
-When the CriticAgent detects quality issues, the system automatically retries with modified strategies:
-
-```
-Query → Plan → Retrieve → Generate → Critique ──┐
-          ↑                                      │
-          └────── Retry with modifications ←─────┘
-                  (if confidence < threshold)
-```
-
-Configure in `config.yaml`:
-```yaml
-agentic:
-  max_critic_retries: 2       # Maximum retry attempts
-  rewrite_on_retry: true      # Rewrite query on retry
-  expand_retrieval_on_retry: true  # Fetch more documents
-```
-
-### Confidence Thresholds
-
-The system provides confidence scores and gracefully returns "I don't know" when confidence is low:
-
-```yaml
-agentic:
-  confidence_threshold: 0.4   # Below this returns "I don't know"
-
-critic:
-  confidence_threshold: 0.4   # Minimum acceptable confidence
-  min_retrieval_confidence: 0.3
-```
-
-### Dynamic Retrieval Mode Selection
-
-The PlanningAgent automatically selects the optimal retrieval strategy:
-
-- **hybrid**: Best for most queries (default)
-- **dense**: Best for semantic/conceptual queries
-- **bm25**: Best for specific terms, names, exact phrases
-
-```yaml
-agentic:
-  dynamic_retrieval_mode: true  # Let planner choose mode
-```
-
-### Tool Integration
-
-Built-in tools for enhanced capabilities:
-
-- **Calculator**: Safe mathematical expression evaluation
-- **Code Executor**: Sandboxed Python for data manipulation
-
-```yaml
-agentic:
-  tools_enabled: true
-```
-
-### Strategy Memory
-
-Tracks which retrieval strategies work best for different query patterns:
-
-```yaml
-agentic:
-  strategy_memory_enabled: true
-  strategy_memory_path: "./data/strategy_memory.json.gz"
-```
-
-The system learns over time which strategies work for:
-- Factual queries ("what is...")
-- Comparison queries ("compare X and Y")
-- Procedural queries ("how to...")
-- And more query patterns
-
-### Intelligent Chunking
-
-LLM-based semantic chunking at ingestion time for improved retrieval quality:
-
-```yaml
-chunking:
-  enabled: true
-  use_llm_chunking: true     # Use LLM for semantic boundaries
-  llm_chunk_threshold: 3000  # Min doc size for LLM chunking
-  target_chunk_size: 800     # Target chunk size
-```
-
-Unlike fixed-size chunking, intelligent chunking:
-- Identifies logical document boundaries (paragraphs, sections, topics)
-- Preserves semantic coherence within chunks
-- Adapts strategy based on document type (code, markdown, prose)
-- Maintains context across chunk boundaries
-
-### Pre-Generation Context Evaluation
-
-Quality gate before generation to prevent wasted LLM calls on poor retrievals:
-
-```yaml
-context_evaluation:
-  enabled: true
-  use_llm_evaluation: true   # Use LLM for detailed assessment
-  sufficiency_threshold: 0.5 # Minimum quality score
-  abort_on_poor_context: false
-```
-
-The context evaluation agent:
-- Assesses relevance, coverage, and specificity of retrieved documents
-- Provides actionable recommendations (proceed, expand retrieval, rewrite query)
-- Can trigger automatic retrieval expansion or query modification
-- Prevents generation when context is clearly insufficient
-
-### Context Summarization
-
-Adaptive context compression to optimize context window utilization:
-
-```yaml
-summarization:
-  enabled: true
-  min_doc_length_for_summary: 2000
-  conversation_compress_threshold: 6
-  max_total_context_chars: 8000
-```
-
-Summarization activates conditionally when:
-- Document length exceeds threshold
-- Conversation history exceeds threshold
-- Multiple highly-similar documents are retrieved
-- Total context exceeds configured limits
-
-### Multi-hop Reasoning
-
-Handles complex queries that require multiple retrieval steps and inference chains:
-
-```yaml
-multihop:
-  enabled: true
-  max_hops: 3                      # Maximum reasoning steps
-  docs_per_hop: 5                  # Documents to retrieve per step
-  min_confidence_to_continue: 0.3  # Stop if confidence drops
-  enable_entity_extraction: true   # Extract entities for follow-up
-```
-
-Multi-hop reasoning automatically activates for:
-- Bridge questions: "Who is the CEO of the company that made X?"
-- Comparison questions: "Which is larger, A or B?"
-- Temporal chains: "What happened after event X?"
-- Compositional questions requiring multiple facts
-
-The agent:
-1. Analyzes query to determine if multi-hop is needed
-2. Decomposes into sequential sub-questions
-3. Executes retrieval for each sub-question
-4. Extracts intermediate answers
-5. Uses intermediate answers to formulate next sub-question
-6. Combines all retrieved context for final synthesis
-
-### Fact Verification
-
-Verifies each claim in generated answers against retrieved context to prevent hallucinations:
-
-```yaml
-fact_verification:
-  enabled: true
-  min_support_confidence: 0.6  # Minimum confidence for support
-  max_claims_to_verify: 20     # Limit for efficiency
-  generate_corrections: true   # Auto-correct problematic claims
-  strict_mode: false           # Require explicit (vs inferred) support
-  block_on_failure: false      # Block answers that fail verification
-```
-
-The fact verification agent:
-- Extracts individual claims from generated answers
-- Cross-checks each claim against retrieved context
-- Classifies support level (supported, partially supported, contradicted)
-- Calculates overall factuality score
-- Optionally generates corrected answers
-- Provides detailed verification reports
-
-Verification statuses:
-- **Supported**: Claim directly supported by context
-- **Partially Supported**: Some aspects supported
-- **Not Supported**: Claim not addressed (but not contradicted)
-- **Contradicted**: Context explicitly contradicts the claim
-- **Unverifiable**: Cannot determine from context
-
-### Citation Tracking
-
-Adds source references to answers for enterprise compliance and auditability:
-
-```yaml
-citation:
-  enabled: true
-  citation_style: "inline"     # inline, footnote, academic, enterprise
-  min_citation_confidence: 0.5
-  max_citations_per_claim: 3
-  include_excerpts: true       # Include supporting quotes
-  generate_bibliography: true  # Add references section
-  generate_audit_trail: true   # Generate audit logs
-```
-
-Citation styles:
-- **inline**: `[1], [2]` markers (default)
-- **footnote**: Superscript-style references
-- **academic**: `Author (Year)` format
-- **hyperlink**: `[Source](url)` format
-- **enterprise**: Document ID + timestamp for compliance
-
-The citation agent provides:
-- Automatic citation insertion into answers
-- Source document metadata tracking
-- Supporting excerpt extraction
-- Bibliography/references generation
-- Comprehensive audit trail for compliance
-- Audit report generation with full provenance
+## Multilingual Support
 
 ### Language Detection
 
-Automatic language detection for multilingual document corpora:
+Radiant RAG automatically detects document languages using FastText:
 
 ```yaml
 language_detection:
   enabled: true
-  method: "fast"           # "fast" (FastText), "llm", "auto"
-  min_confidence: 0.7      # Threshold for fast-langdetect
-  use_llm_fallback: true   # Use LLM for low-confidence cases
-  fallback_language: "en"  # Default if detection fails
+  method: "fast"       # "fast" (FastText), "llm", "auto"
+  min_confidence: 0.7
+  use_llm_fallback: true
 ```
 
-The language detection agent:
-- Uses Facebook's FastText model via `fast-langdetect` (176 languages, ~0.1ms per detection)
-- Falls back to LLM for ambiguous or low-confidence cases
-- Supports batch detection for efficient processing
-- Provides confidence scores and detection method metadata
+### Translation Pipeline
 
-### Translation
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      MULTILINGUAL INGESTION                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  INPUT: Document in French                                                  │
+│  "L'apprentissage automatique est une branche de l'intelligence..."        │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ LANGUAGE DETECTION AGENT                                              │ │
+│  │ Method: FastText (0.1ms)                                              │ │
+│  │ Result: { language: "fr", confidence: 0.95 }                          │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ TRANSLATION AGENT                                                     │ │
+│  │ Method: LLM-based translation                                         │ │
+│  │ Source: French → Target: English (canonical)                          │ │
+│  │ Chunked at paragraph boundaries for long documents                    │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          ▼                                                  │
+│  OUTPUT: Indexed Document                                                   │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │ content: "Machine learning is a branch of artificial intelligence..." │ │
+│  │ metadata:                                                             │ │
+│  │   language_code: "fr"                                                 │ │
+│  │   language_name: "French"                                             │ │
+│  │   was_translated: true                                                │ │
+│  │   original_content: "L'apprentissage automatique est..."              │ │
+│  │   translation_method: "llm"                                           │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-Automatic translation to canonical language for multilingual indexing:
+### Supported Languages
+
+- **Detection**: 176 languages (FastText)
+- **Translation**: 50+ language pairs (LLM-based)
+
+---
+
+## Advanced Features
+
+### Fact Verification
+
+Automatically verifies generated claims against source context:
 
 ```yaml
-translation:
+fact_verification:
   enabled: true
-  method: "llm"                    # Uses existing LLMClient
-  canonical_language: "en"         # Target language for indexing
-  max_chars_per_llm_call: 4000     # Chunk size for long documents
-  translate_at_ingestion: true     # Translate during document ingestion
-  translate_at_query: false        # Optional query-time translation
-  preserve_original: true          # Store original text in metadata
+  min_claim_confidence: 0.6
+  enable_correction: true
 ```
 
-The translation agent:
-- High-quality LLM-based translation
-- Automatic chunking for long documents (at paragraph boundaries)
-- Preserves formatting (paragraphs, lists, code blocks)
-- Stores both original and translated content
-- Supports 50+ language pairs
+### Citation Tracking
 
-**Multilingual Workflow:**
-```
-Document (Any Language)
-    ↓
-LanguageDetectionAgent → detect source language
-    ↓
-If not canonical language:
-    TranslationAgent → translate to English (canonical)
-    ↓
-Store: translated content + original in metadata
-    ↓
-Index with English embeddings
+Adds source references to answers:
+
+```yaml
+citation:
+  enabled: true
+  citation_style: "inline"  # inline, footnote, academic, enterprise
+  include_excerpts: true
+  generate_bibliography: true
 ```
 
-**Metadata stored per chunk:**
-- `language_code`: Original language ISO code (e.g., "zh", "fr")
-- `language_name`: Human-readable language name
-- `was_translated`: Boolean indicating if translation occurred
-- `original_content`: Original text (if `preserve_original: true`)
-- `translation_method`: Method used ("llm", "llm_chunked")
+### Strategy Memory
+
+Learns from successful retrieval patterns:
+
+```yaml
+strategy_memory:
+  enabled: true
+  memory_file: "data/strategy_memory.json.gz"
+  min_samples: 5
+```
+
+### Web Search Augmentation
+
+Real-time web search for current information:
+
+```yaml
+web_search:
+  enabled: false  # Enable when needed
+  provider: "duckduckgo"
+  max_results: 5
+```
+
+---
+
+## API Reference
+
+### Python API
+
+```python
+from radiant.app import RadiantRAG, create_app
+
+# Create application
+app = create_app("config.yaml")  # Or RadiantRAG()
+
+# Ingest documents
+app.ingest_paths(["./docs/"], hierarchical=True)
+
+# Ingest URLs
+app.ingest_urls(["https://github.com/owner/repo"])
+
+# Query
+result = app.query("What is RAG?", mode="hybrid")
+print(result.answer)
+print(result.confidence)
+
+# Search only (no LLM)
+results = app.search("BM25 algorithm", mode="hybrid", top_k=10)
+
+# Interactive session
+conversation_id = app.start_conversation()
+result1 = app.query("What is RAG?", conversation_id=conversation_id)
+result2 = app.query("Tell me more", conversation_id=conversation_id)
+
+# Clear index
+app.clear_index()
+
+# Check health
+health = app.check_health()
+```
+
+### Result Object
+
+```python
+@dataclass
+class PipelineResult:
+    answer: str                    # Generated answer
+    sources: List[StoredDoc]       # Source documents
+    confidence: float              # Critic score (0-1)
+    metrics: Dict[str, Any]        # Performance metrics
+    plan: Optional[Dict]           # Planning agent output
+    sub_queries: List[str]         # Decomposed queries
+    citations: List[Citation]      # Source citations
+    verification: Optional[Dict]   # Fact verification result
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**Redis connection failed**
+```bash
+# Check Redis is running
+docker ps | grep redis-stack
+
+# Start Redis if needed
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server
+```
+
+**No documents found after ingestion**
+```bash
+# Check index status
+python -m radiant stats
+
+# Clear and re-ingest
+python -m radiant clear --confirm
+python -m radiant ingest ./docs/
+```
+
+**GitHub rate limit exceeded**
+```bash
+# Set GitHub token
+export GITHUB_TOKEN="ghp_your_token"
+```
+
+**Slow ingestion**
+```yaml
+# Increase batch sizes in config.yaml
+ingestion:
+  embedding_batch_size: 64  # Increase if GPU has memory
+  redis_batch_size: 200
+```
+
+### Diagnostic Tools
+
+```bash
+# Check Redis connectivity and stats
+python tools/check_redis.py
+
+# Inspect index contents
+python tools/inspect_index.py
+
+# View system health
+python -m radiant health
+
+# View statistics
+python -m radiant stats
+```
 
 ---
 
@@ -1051,143 +1215,59 @@ Index with English embeddings
 
 ```
 radiant-rag/
-├── pyproject.toml              # Python packaging configuration
-├── config.yaml                 # Default configuration
-├── README.md
-├── requirements.txt
-├── requirements-dev.txt
+├── config.yaml                 # Configuration file
+├── README.md                   # This file
+├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Package configuration
 │
 ├── radiant/                    # Main package
-│   ├── __init__.py             # Package init
-│   ├── __main__.py             # Entry: python -m radiant
-│   ├── app.py                  # RadiantRAG class + main()
-│   ├── cli.py                  # CLI wrapper
+│   ├── app.py                  # RadiantRAG application
+│   ├── orchestrator.py         # Agent pipeline orchestration
 │   ├── config.py               # Configuration loading
-│   ├── orchestrator.py         # Agentic pipeline coordination
 │   │
-│   ├── agents/                 # Pipeline agents (one per file)
-│   │   ├── __init__.py         # Package exports
-│   │   ├── base.py             # AgentContext, new_agent_context
-│   │   ├── planning.py         # PlanningAgent (dynamic mode selection)
-│   │   ├── decomposition.py    # QueryDecompositionAgent
-│   │   ├── rewrite.py          # QueryRewriteAgent
-│   │   ├── expansion.py        # QueryExpansionAgent
-│   │   ├── dense.py            # DenseRetrievalAgent
-│   │   ├── bm25.py             # BM25RetrievalAgent
-│   │   ├── web_search.py       # WebSearchAgent
-│   │   ├── fusion.py           # RRFAgent (Reciprocal Rank Fusion)
-│   │   ├── automerge.py        # HierarchicalAutoMergingAgent
-│   │   ├── rerank.py           # CrossEncoderRerankingAgent
-│   │   ├── synthesis.py        # AnswerSynthesisAgent
-│   │   ├── critic.py           # CriticAgent (confidence scoring)
-│   │   ├── tools.py            # Tool abstraction (calculator, code)
-│   │   ├── strategy_memory.py  # Retrieval strategy learning
-│   │   ├── chunking.py         # IntelligentChunkingAgent
-│   │   ├── summarization.py    # SummarizationAgent
-│   │   ├── context_eval.py     # ContextEvaluationAgent
-│   │   ├── multihop.py         # MultiHopReasoningAgent
-│   │   ├── fact_verification.py # FactVerificationAgent
-│   │   ├── citation.py         # CitationTrackingAgent
-│   │   ├── language_detection.py # LanguageDetectionAgent (NEW)
-│   │   ├── translation.py      # TranslationAgent (NEW)
-│   │   └── registry.py         # Agent registry
-│   │
-│   ├── storage/                # Storage backends
-│   │   ├── __init__.py
-│   │   ├── redis_store.py      # Redis + Vector Search
-│   │   └── bm25_index.py       # Persistent BM25
+│   ├── agents/                 # Pipeline agents
+│   │   ├── planning.py         # Query planning
+│   │   ├── decomposition.py    # Query decomposition
+│   │   ├── dense.py            # Dense retrieval
+│   │   ├── bm25.py             # BM25 retrieval
+│   │   ├── fusion.py           # RRF fusion
+│   │   ├── rerank.py           # Cross-encoder reranking
+│   │   ├── synthesis.py        # Answer generation
+│   │   ├── citation.py         # Citation tracking
+│   │   ├── fact_verification.py # Fact checking
+│   │   └── ...                 # Other agents
 │   │
 │   ├── ingestion/              # Document processing
-│   │   ├── __init__.py
-│   │   ├── processor.py        # DocumentProcessor, TranslatingDocumentProcessor
-│   │   ├── web_crawler.py      # URL crawling
-│   │   └── image_captioner.py  # VLM captioning
+│   │   ├── processor.py        # Document processor
+│   │   ├── github_crawler.py   # GitHub repository crawler
+│   │   ├── web_crawler.py      # Web page crawler
+│   │   ├── code_chunker.py     # Code-aware chunking
+│   │   └── image_captioner.py  # VLM image captioning
+│   │
+│   ├── storage/                # Storage backends
+│   │   ├── redis_store.py      # Redis vector store
+│   │   └── bm25_index.py       # Persistent BM25 index
 │   │
 │   ├── llm/                    # LLM clients
-│   │   ├── __init__.py
-│   │   ├── client.py           # LLMClient, LLMClients
-│   │   └── local_models.py     # LocalNLPModels (embeddings, reranking)
+│   │   ├── client.py           # LLM API client
+│   │   └── local_models.py     # Local embedding/reranking
 │   │
-│   ├── ui/                     # User interfaces
-│   │   ├── __init__.py
-│   │   ├── display.py          # Console utilities
-│   │   ├── tui.py              # Textual TUI
-│   │   └── reports/            # Report generation
-│   │       ├── __init__.py
-│   │       ├── report.py       # HTML, Markdown, JSON
-│   │       └── text.py         # Text reports
-│   │
-│   └── utils/                  # Utilities
-│       ├── __init__.py
-│       ├── metrics.py          # Performance tracking
-│       └── conversation.py     # Conversation history
-│
-├── data/                       # Runtime data (created automatically)
-│   ├── bm25_index.json.gz      # BM25 index
-│   └── strategy_memory.json.gz # Strategy learning data
+│   └── ui/                     # User interfaces
+│       ├── display.py          # Console output
+│       ├── tui.py              # Textual TUI
+│       └── reports/            # Report generation
 │
 ├── tools/                      # Diagnostic tools
-│   ├── check_redis.py          # Redis diagnostics
-│   └── inspect_index.py        # Index inspection
+│   ├── check_redis.py
+│   └── inspect_index.py
+│
+├── docs/                       # Documentation
+│   ├── USER_MANUAL.md
+│   └── GITHUB_INDEXING_ISSUE.md
 │
 └── tests/                      # Test suite
-    ├── __init__.py
-    ├── test_all.py
-    └── test_*/                 # Test subdirectories
+    └── test_all.py
 ```
-
----
-
-## Troubleshooting
-
-### Check Redis Status
-```bash
-python tools/check_redis.py
-```
-
-### Inspect Index
-```bash
-python tools/inspect_index.py
-```
-
-### Common Issues
-
-**"Redis Search module not found"**
-```bash
-# Install Redis Stack (includes RediSearch)
-docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server
-```
-
-**"No documents found"**
-```bash
-# Check ingestion status
-python -m radiant stats
-
-# Re-ingest if needed
-python -m radiant ingest ./docs/
-```
-
-**Slow image ingestion**
-```bash
-# Skip VLM captioning
-python -m radiant ingest ./docs/ --skip-vlm
-```
-
----
-
-## Requirements
-
-- Python 3.10+
-- Redis Stack (Redis + RediSearch module)
-- CUDA-capable GPU (optional, for faster inference)
-
-### Key Dependencies
-- `sentence-transformers` - Embedding and reranking
-- `transformers>=4.57.0` - Qwen3-VL support
-- `redis` - Redis client
-- `rich` - Console output
-- `unstructured` - Document parsing
-- `qwen-vl-utils` - VLM image processing
 
 ---
 
@@ -1198,3 +1278,13 @@ MIT License
 ## Contributing
 
 Contributions welcome! Please read the contributing guidelines first.
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-12 | Initial release |
+| 1.1.0 | 2025-12 | Added GitHub crawler, code-aware chunking |
+| 1.2.0 | 2025-12 | Added multilingual support, fact verification |
