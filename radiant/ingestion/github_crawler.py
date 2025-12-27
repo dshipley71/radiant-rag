@@ -86,9 +86,9 @@ class GitHubCrawler:
     - Handles rate limiting gracefully
     """
     
-    # Pattern to match GitHub repo URLs
+    # Pattern to match GitHub repo URLs (captures before any query string)
     GITHUB_URL_PATTERN = re.compile(
-        r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/?(?:tree/([^/]+))?(?:/(.*))?$"
+        r"https?://(?:www\.)?github\.com/([^/]+)/([^/?#]+)/?(?:tree/([^/?#]+))?(?:/([^?#]*))?(?:[?#].*)?"
     )
     
     # Pattern to match markdown links in content
@@ -172,6 +172,11 @@ class GitHubCrawler:
         Returns:
             GitHubRepo object or None if not a valid GitHub URL
         """
+        # Strip query string and fragment for cleaner parsing
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        clean_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+        
         match = cls.GITHUB_URL_PATTERN.match(url)
         if not match:
             return None
@@ -180,6 +185,10 @@ class GitHubCrawler:
         
         # Clean repo name (remove .git suffix if present)
         repo = repo.rstrip(".git")
+        
+        # Remove any remaining query string artifacts
+        if "?" in repo:
+            repo = repo.split("?")[0]
         
         # Default branch
         branch = branch or "main"
@@ -300,11 +309,21 @@ class GitHubCrawler:
         
         files = []
         
+        # Handle error responses from API
         if isinstance(items, dict):
+            if "message" in items:
+                # API error response
+                logger.warning(f"GitHub API error: {items.get('message')}")
+                return []
             # Single file
             items = [items]
         
         for item in items:
+            # Skip items without type (malformed response)
+            if not isinstance(item, dict) or "type" not in item:
+                logger.warning(f"Skipping malformed item in API response: {item}")
+                continue
+                
             if item["type"] == "file":
                 ext = os.path.splitext(item["name"])[1].lower()
                 if ext in self.include_extensions:
