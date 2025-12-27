@@ -199,6 +199,15 @@ class BM25Index:
         # Remove from lists
         del self.doc_ids[idx]
         del self.doc_tokens[idx]
+        
+        # Remove from set and dict
+        self.doc_id_set.discard(doc_id)
+        del self.doc_id_to_idx[doc_id]
+        
+        # Update indices for all documents that came after the removed one
+        for other_doc_id, other_idx in self.doc_id_to_idx.items():
+            if other_idx > idx:
+                self.doc_id_to_idx[other_doc_id] = other_idx - 1
 
         # Mark for full rebuild (removal is complex to do incrementally)
         self.needs_rebuild = True
