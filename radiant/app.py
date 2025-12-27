@@ -783,8 +783,8 @@ class RadiantRAG:
                     progress.update(f"Processing: {github_file.path}...")
                 
                 try:
-                    # Create chunks from the markdown content
-                    chunks = self._chunk_markdown_content(
+                    # Create chunks from the file content (handles both code and markdown)
+                    chunks = self._chunk_github_content(
                         github_file.content,
                         source_path=github_file.path,
                         source_url=github_file.url,
@@ -832,6 +832,130 @@ class RadiantRAG:
         
         return stats
     
+    def _chunk_github_content(
+        self,
+        content: str,
+        source_path: str,
+        source_url: str,
+        repo_name: str,
+    ) -> List[IngestedChunk]:
+        """
+        Chunk GitHub file content intelligently.
+        
+        Handles both documentation and code files:
+        - Markdown: Q&A patterns, headers, paragraphs
+        - Code: Functions, classes, methods with imports context
+        
+        Args:
+            content: File content
+            source_path: Source file path
+            source_url: Source URL
+            repo_name: Repository name
+            
+        Returns:
+            List of IngestedChunk objects
+        """
+        import os
+        import re
+        
+        chunks = []
+        base_meta = {
+            "source_path": source_path,
+            "source_url": source_url,
+            "source_type": "github",
+            "repo_name": repo_name,
+        }
+        
+        # Detect file type
+        ext = os.path.splitext(source_path)[1].lower()
+        
+        # Code file extensions
+        code_extensions = {
+            ".py", ".pyw", ".pyx",  # Python
+            ".js", ".jsx", ".ts", ".tsx", ".mjs",  # JavaScript/TypeScript
+            ".java", ".kt", ".kts", ".scala",  # JVM
+            ".go", ".rs", ".c", ".h", ".cpp", ".cc", ".hpp", ".cs",  # Systems
+            ".rb", ".php", ".swift", ".r",  # Scripting
+            ".sh", ".bash", ".zsh",  # Shell
+            ".sql",  # SQL
+        }
+        
+        # Handle code files with code-aware chunking
+        if ext in code_extensions:
+            return self._chunk_code_content(content, source_path, source_url, repo_name)
+        
+        # Handle markdown/documentation files
+        return self._chunk_markdown_content(content, source_path, source_url, repo_name)
+    
+    def _chunk_code_content(
+        self,
+        content: str,
+        source_path: str,
+        source_url: str,
+        repo_name: str,
+    ) -> List[IngestedChunk]:
+        """
+        Chunk code files using code-aware parsing.
+        
+        Args:
+            content: Code content
+            source_path: Source file path
+            source_url: Source URL
+            repo_name: Repository name
+            
+        Returns:
+            List of IngestedChunk objects
+        """
+        from radiant.ingestion.code_chunker import CodeChunker, CodeLanguage
+        
+        chunks = []
+        base_meta = {
+            "source_path": source_path,
+            "source_url": source_url,
+            "source_type": "github_code",
+            "repo_name": repo_name,
+        }
+        
+        # Use code-aware chunking
+        chunker = CodeChunker(
+            max_chunk_size=2000,
+            min_chunk_size=100,
+            include_imports_context=True,
+        )
+        
+        code_chunks = chunker.chunk_file(content, source_path)
+        
+        for i, code_chunk in enumerate(code_chunks):
+            # Create indexable text with context
+            indexable_text = code_chunk.to_indexable_text()
+            
+            chunks.append(IngestedChunk(
+                content=indexable_text,
+                meta={
+                    **base_meta,
+                    "chunk_index": i,
+                    "content_type": "code",
+                    "language": code_chunk.language.value,
+                    "block_type": code_chunk.block_type,
+                    "block_name": code_chunk.block_name,
+                    "start_line": code_chunk.start_line,
+                    "end_line": code_chunk.end_line,
+                },
+            ))
+        
+        # Fallback if no chunks were created
+        if not chunks:
+            chunks.append(IngestedChunk(
+                content=f"File: {source_path}\n\n{content}",
+                meta={
+                    **base_meta,
+                    "chunk_index": 0,
+                    "content_type": "code_file",
+                },
+            ))
+        
+        return chunks
+
     def _chunk_markdown_content(
         self,
         content: str,
@@ -1213,6 +1337,35 @@ class RadiantRAG:
         """
         return self._bm25_index.build_from_store(limit=limit)
 
+    def clear_index(self, keep_bm25: bool = False) -> bool:
+        """
+        Clear all documents from the index.
+        
+        Args:
+            keep_bm25: If True, keep BM25 index (only clear vector store)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Drop the Redis vector index and documents
+            self._store.drop_index(delete_documents=True)
+            
+            # Recreate empty index
+            self._store._ensure_index()
+            
+            # Clear BM25 index unless told to keep it
+            if not keep_bm25:
+                self._bm25_index.clear()
+                self._bm25_index.save()
+            
+            logger.info("Cleared all documents from index")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to clear index: {e}")
+            return False
+
     def get_stats(self) -> Dict[str, Any]:
         """Get system statistics."""
         return {
@@ -1393,6 +1546,19 @@ def main() -> int:
         help="Maximum documents to index",
     )
 
+    # Clear index command
+    clear_parser = subparsers.add_parser("clear", help="Clear all indexed documents")
+    clear_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm clearing without prompt",
+    )
+    clear_parser.add_argument(
+        "--keep-bm25",
+        action="store_true",
+        help="Keep BM25 index (only clear vector store)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1533,6 +1699,30 @@ def main() -> int:
         elif args.command == "rebuild-bm25":
             count = app.rebuild_bm25_index(args.limit)
             display_success(f"Rebuilt BM25 index with {count} documents")
+
+        elif args.command == "clear":
+            # Get current stats first
+            stats = app.store.get_stats()
+            doc_count = stats.get("total_documents", 0)
+            
+            if doc_count == 0:
+                display_info("Index is already empty")
+                return 0
+            
+            # Confirm unless --confirm flag is set
+            if not args.confirm:
+                console.print(f"[yellow]Warning: This will delete {doc_count} documents from the index.[/yellow]")
+                response = console.input("[bold]Are you sure? Type 'yes' to confirm: [/bold]")
+                if response.lower() != "yes":
+                    display_info("Cancelled")
+                    return 0
+            
+            # Clear the index
+            cleared = app.clear_index(keep_bm25=args.keep_bm25)
+            if cleared:
+                display_success(f"Cleared {doc_count} documents from the index")
+            else:
+                display_error("Failed to clear index")
 
         return 0
 

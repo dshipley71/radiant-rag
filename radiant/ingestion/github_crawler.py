@@ -116,13 +116,35 @@ class GitHubCrawler:
             timeout: Request timeout in seconds
             delay: Delay between requests (rate limiting)
             max_files: Maximum files to fetch
-            include_extensions: File extensions to include (default: .md, .txt, .rst)
+            include_extensions: File extensions to include (default: docs + code)
             github_token: Optional GitHub API token for higher rate limits
         """
         self.timeout = timeout
         self.delay = delay
         self.max_files = max_files
-        self.include_extensions = include_extensions or [".md", ".txt", ".rst", ".mdx"]
+        
+        # Default extensions: documentation + code files
+        self.include_extensions = include_extensions or [
+            # Documentation
+            ".md", ".txt", ".rst", ".mdx",
+            # Python
+            ".py", ".pyw", ".pyx",
+            # JavaScript/TypeScript
+            ".js", ".jsx", ".ts", ".tsx", ".mjs",
+            # Java/JVM
+            ".java", ".kt", ".kts", ".scala",
+            # Systems
+            ".go", ".rs", ".c", ".h", ".cpp", ".cc", ".hpp", ".cs",
+            # Scripting
+            ".rb", ".php", ".swift", ".r",
+            # Shell
+            ".sh", ".bash", ".zsh",
+            # Config/Data
+            ".yaml", ".yml", ".json", ".toml",
+            # SQL
+            ".sql",
+        ]
+        
         self.github_token = github_token or os.environ.get("GITHUB_TOKEN")
         
         self._session = requests.Session()
