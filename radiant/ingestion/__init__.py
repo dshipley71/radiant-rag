@@ -8,6 +8,7 @@ Provides:
     - IngestedChunk: Chunk data class
     - ChunkSplitter: Text chunking utility
     - WebCrawler: URL crawling
+    - GitHubCrawler: GitHub repository crawling
     - ImageCaptioner: VLM image captioning
 """
 
@@ -21,6 +22,13 @@ from radiant.ingestion.processor import (
     CleaningPreview,
 )
 from radiant.ingestion.web_crawler import WebCrawler, CrawlResult
+from radiant.ingestion.github_crawler import (
+    GitHubCrawler,
+    GitHubCrawlResult,
+    GitHubFile,
+    GitHubRepo,
+    crawl_github_repo,
+)
 from radiant.ingestion.image_captioner import ImageCaptioner, VLMConfig, create_captioner
 
 __all__ = [
@@ -35,6 +43,12 @@ __all__ = [
     # Web crawler
     "WebCrawler",
     "CrawlResult",
+    # GitHub crawler
+    "GitHubCrawler",
+    "GitHubCrawlResult",
+    "GitHubFile",
+    "GitHubRepo",
+    "crawl_github_repo",
     # Image captioner
     "ImageCaptioner",
     "VLMConfig",

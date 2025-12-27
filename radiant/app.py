@@ -25,6 +25,11 @@ from radiant.ingestion.processor import (
     IngestedChunk,
     TranslatingDocumentProcessor,
 )
+from radiant.ingestion.github_crawler import (
+    GitHubCrawler,
+    GitHubCrawlResult,
+    crawl_github_repo,
+)
 from radiant.orchestrator import PipelineResult, RAGOrchestrator, SimplifiedOrchestrator
 from radiant.ingestion.image_captioner import ImageCaptioner, VLMConfig, create_captioner
 from radiant.agents.language_detection import LanguageDetectionAgent
@@ -505,6 +510,9 @@ class RadiantRAG:
         """
         Ingest documents from URLs into the RAG system.
         
+        Automatically detects GitHub repository URLs and uses specialized
+        GitHub crawling for proper content extraction.
+        
         Args:
             urls: URLs to ingest (will be crawled based on config)
             show_progress: Whether to show progress
@@ -520,14 +528,44 @@ class RadiantRAG:
         """
         from radiant.ingestion.web_crawler import WebCrawler, CrawlResult
         
+        # Separate GitHub URLs from regular URLs
+        github_urls = [u for u in urls if GitHubCrawler.is_github_url(u)]
+        regular_urls = [u for u in urls if not GitHubCrawler.is_github_url(u)]
+        
         stats = {
             "urls_crawled": 0,
             "files_processed": 0,
             "files_failed": 0,
             "chunks_created": 0,
             "documents_stored": 0,
+            "github_repos": 0,
             "errors": [],
         }
+        
+        # Handle GitHub URLs with specialized crawler
+        for github_url in github_urls:
+            if show_progress:
+                display_info(f"Detected GitHub repository: {github_url}")
+            
+            github_stats = self.ingest_github(
+                github_url,
+                show_progress=show_progress,
+                use_hierarchical=use_hierarchical,
+                child_chunk_size=child_chunk_size,
+                child_chunk_overlap=child_chunk_overlap,
+                fetch_all_files=True,  # Fetch all markdown files
+                follow_readme_links=True,
+            )
+            
+            stats["github_repos"] += 1
+            stats["files_processed"] += github_stats.get("files_processed", 0)
+            stats["chunks_created"] += github_stats.get("chunks_created", 0)
+            stats["documents_stored"] += github_stats.get("documents_stored", 0)
+            stats["errors"].extend(github_stats.get("errors", []))
+        
+        # If no regular URLs, return now
+        if not regular_urls:
+            return stats
 
         if show_progress:
             progress = ProgressDisplay("Crawling URLs...")
@@ -659,6 +697,281 @@ class RadiantRAG:
                 progress.__exit__(None, None, None)
 
         return stats
+
+    def ingest_github(
+        self,
+        url: str,
+        show_progress: bool = True,
+        use_hierarchical: bool = True,
+        child_chunk_size: int = 512,
+        child_chunk_overlap: int = 50,
+        fetch_all_files: bool = True,
+        follow_readme_links: bool = True,
+        github_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ingest a GitHub repository into the RAG system.
+        
+        This method properly handles GitHub repositories by:
+        1. Detecting it's a GitHub URL
+        2. Fetching raw markdown content (not HTML)
+        3. Following links in README to find all content files
+        4. Indexing each markdown file as a document
+        
+        Args:
+            url: GitHub repository URL
+            show_progress: Whether to show progress
+            use_hierarchical: Whether to use hierarchical storage
+            child_chunk_size: Size of child chunks
+            child_chunk_overlap: Overlap between chunks
+            fetch_all_files: If True, fetch ALL markdown files using API
+            follow_readme_links: If True, follow links found in README
+            github_token: Optional GitHub API token for higher rate limits
+            
+        Returns:
+            Ingestion statistics
+        """
+        stats = {
+            "repo": "",
+            "files_fetched": 0,
+            "files_processed": 0,
+            "chunks_created": 0,
+            "documents_stored": 0,
+            "errors": [],
+        }
+        
+        # Check if it's a GitHub URL
+        if not GitHubCrawler.is_github_url(url):
+            stats["errors"].append(f"Not a GitHub URL: {url}")
+            return stats
+        
+        if show_progress:
+            progress = ProgressDisplay("Crawling GitHub repository...")
+            progress.__enter__()
+        
+        try:
+            # Create crawler
+            crawler = GitHubCrawler(
+                github_token=github_token,
+                max_files=200,
+            )
+            
+            if show_progress:
+                progress.update(f"Fetching content from {url}...")
+            
+            # Crawl the repository
+            result = crawler.crawl(
+                url,
+                fetch_all_files=fetch_all_files,
+                follow_readme_links=follow_readme_links,
+            )
+            
+            stats["repo"] = f"{result.repo.owner}/{result.repo.repo}"
+            stats["files_fetched"] = len(result.files)
+            
+            logger.info(
+                f"Fetched {len(result.files)} files from "
+                f"{result.repo.owner}/{result.repo.repo}"
+            )
+            
+            # Process each file
+            for github_file in result.files:
+                if not github_file.content:
+                    continue
+                
+                if show_progress:
+                    progress.update(f"Processing: {github_file.path}...")
+                
+                try:
+                    # Create chunks from the markdown content
+                    chunks = self._chunk_markdown_content(
+                        github_file.content,
+                        source_path=github_file.path,
+                        source_url=github_file.url,
+                        repo_name=f"{result.repo.owner}/{result.repo.repo}",
+                    )
+                    
+                    if not chunks:
+                        continue
+                    
+                    stats["files_processed"] += 1
+                    stats["chunks_created"] += len(chunks)
+                    
+                    # Store chunks
+                    if use_hierarchical:
+                        stored = self._ingest_hierarchical(
+                            github_file.path,
+                            chunks,
+                            child_chunk_size,
+                            child_chunk_overlap,
+                        )
+                    else:
+                        stored = self._ingest_flat(chunks)
+                    
+                    stats["documents_stored"] += stored
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process {github_file.path}: {e}")
+                    stats["errors"].append(f"{github_file.path}: {e}")
+            
+            # Add any crawler errors
+            stats["errors"].extend(result.errors)
+            
+            # Sync BM25 index
+            if show_progress:
+                progress.update("Syncing BM25 index...")
+            
+            self._bm25_index.sync_with_store()
+            self._bm25_index.save()
+            
+            crawler.close()
+            
+        finally:
+            if show_progress:
+                progress.__exit__(None, None, None)
+        
+        return stats
+    
+    def _chunk_markdown_content(
+        self,
+        content: str,
+        source_path: str,
+        source_url: str,
+        repo_name: str,
+    ) -> List[IngestedChunk]:
+        """
+        Chunk markdown content intelligently.
+        
+        This handles:
+        - Q&A style content (splits by question)
+        - Regular markdown (splits by headers)
+        - Tables (keeps rows together)
+        
+        Args:
+            content: Markdown content
+            source_path: Source file path
+            source_url: Source URL
+            repo_name: Repository name
+            
+        Returns:
+            List of IngestedChunk objects
+        """
+        import re
+        
+        chunks = []
+        base_meta = {
+            "source_path": source_path,
+            "source_url": source_url,
+            "source_type": "github",
+            "repo_name": repo_name,
+        }
+        
+        # For Q&A content, try to detect question-answer pairs
+        # Pattern: **Question text** followed by answer
+        qa_pattern = re.compile(
+            r'\*\*([^*]+\??)\*\*\s*\n+(.*?)(?=\*\*[^*]+\*\*\s*\n|\Z)',
+            re.DOTALL
+        )
+        
+        qa_matches = list(qa_pattern.finditer(content))
+        if len(qa_matches) >= 2:
+            # This looks like Q&A content
+            for i, match in enumerate(qa_matches):
+                question = match.group(1).strip()
+                answer = match.group(2).strip()
+                
+                if len(answer) < 20:  # Skip too-short answers
+                    continue
+                
+                qa_text = f"**Question:** {question}\n\n**Answer:** {answer}"
+                chunks.append(IngestedChunk(
+                    content=qa_text,
+                    meta={
+                        **base_meta,
+                        "chunk_index": i,
+                        "content_type": "qa",
+                        "question": question,
+                    },
+                ))
+            
+            if chunks:
+                return chunks
+        
+        # Try header-based chunking for markdown
+        # Split by ## headers (keep # for title context)
+        header_pattern = re.compile(r'^(#{1,3})\s+(.+)$', re.MULTILINE)
+        
+        sections = []
+        last_end = 0
+        current_header = ""
+        
+        for match in header_pattern.finditer(content):
+            # Save previous section
+            if last_end > 0:
+                section_content = content[last_end:match.start()].strip()
+                if section_content and len(section_content) > 50:
+                    full_section = f"{current_header}\n\n{section_content}" if current_header else section_content
+                    sections.append(full_section)
+            
+            current_header = match.group(0)
+            last_end = match.end()
+        
+        # Add final section
+        if last_end < len(content):
+            final = content[last_end:].strip()
+            if final and len(final) > 50:
+                full_section = f"{current_header}\n\n{final}" if current_header else final
+                sections.append(full_section)
+        
+        if sections:
+            for i, section in enumerate(sections):
+                chunks.append(IngestedChunk(
+                    content=section,
+                    meta={
+                        **base_meta,
+                        "chunk_index": i,
+                        "content_type": "section",
+                    },
+                ))
+            return chunks
+        
+        # Fallback: split by paragraphs
+        paragraphs = content.split("\n\n")
+        current_chunk = ""
+        chunk_index = 0
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            if len(current_chunk) + len(para) < 2000:
+                current_chunk += "\n\n" + para if current_chunk else para
+            else:
+                if current_chunk and len(current_chunk) > 50:
+                    chunks.append(IngestedChunk(
+                        content=current_chunk,
+                        meta={
+                            **base_meta,
+                            "chunk_index": chunk_index,
+                            "content_type": "paragraph",
+                        },
+                    ))
+                    chunk_index += 1
+                current_chunk = para
+        
+        # Add final chunk
+        if current_chunk and len(current_chunk) > 50:
+            chunks.append(IngestedChunk(
+                content=current_chunk,
+                meta={
+                    **base_meta,
+                    "chunk_index": chunk_index,
+                    "content_type": "paragraph",
+                },
+            ))
+        
+        return chunks
 
     def query(
         self,

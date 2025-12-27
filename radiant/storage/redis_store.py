@@ -256,6 +256,7 @@ class RedisVectorStore:
             TextField("content", no_stem=True),
             TagField("doc_level"),
             TagField("parent_id"),
+            TagField("language_code"),  # Language filtering support
             VectorField(
                 "embedding",
                 "HNSW",
@@ -329,6 +330,7 @@ class RedisVectorStore:
         # Extract special fields for indexing
         doc_level = str(meta.get("doc_level", "child"))
         parent_id = str(meta.get("parent_id", ""))
+        language_code = str(meta.get("language_code", "en"))  # Default to English
 
         # Store as hash
         key = self._doc_key(doc_id)
@@ -338,6 +340,7 @@ class RedisVectorStore:
             "embedding": self._embedding_to_bytes(embedding),
             "doc_level": doc_level.encode("utf-8"),
             "parent_id": parent_id.encode("utf-8"),
+            "language_code": language_code.encode("utf-8"),
         }
 
         self._r.hset(key, mapping=mapping)
@@ -373,6 +376,7 @@ class RedisVectorStore:
 
         doc_level = str(meta.get("doc_level", "parent"))
         parent_id = str(meta.get("parent_id", ""))
+        language_code = str(meta.get("language_code", "en"))
 
         # Store as hash (without embedding field)
         key = self._doc_key(doc_id)
@@ -381,6 +385,7 @@ class RedisVectorStore:
             "meta": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
             "doc_level": doc_level.encode("utf-8"),
             "parent_id": parent_id.encode("utf-8"),
+            "language_code": language_code.encode("utf-8"),
         }
 
         self._r.hset(key, mapping=mapping)
@@ -423,6 +428,7 @@ class RedisVectorStore:
             # Extract special fields for indexing
             doc_level = str(meta.get("doc_level", "child"))
             parent_id = str(meta.get("parent_id", ""))
+            language_code = str(meta.get("language_code", "en"))
 
             # Store as hash
             key = self._doc_key(doc_id)
@@ -432,6 +438,7 @@ class RedisVectorStore:
                 "embedding": self._embedding_to_bytes(embedding),
                 "doc_level": doc_level.encode("utf-8"),
                 "parent_id": parent_id.encode("utf-8"),
+                "language_code": language_code.encode("utf-8"),
             }
 
             pipeline.hset(key, mapping=mapping)
@@ -473,6 +480,7 @@ class RedisVectorStore:
 
             doc_level = str(meta.get("doc_level", "parent"))
             parent_id = str(meta.get("parent_id", ""))
+            language_code = str(meta.get("language_code", "en"))
 
             # Store as hash (without embedding field)
             key = self._doc_key(doc_id)
@@ -481,6 +489,7 @@ class RedisVectorStore:
                 "meta": json.dumps(meta, ensure_ascii=False).encode("utf-8"),
                 "doc_level": doc_level.encode("utf-8"),
                 "parent_id": parent_id.encode("utf-8"),
+                "language_code": language_code.encode("utf-8"),
             }
 
             pipeline.hset(key, mapping=mapping)
@@ -544,6 +553,7 @@ class RedisVectorStore:
         top_k: int,
         min_similarity: float = 0.0,
         ef_runtime: Optional[int] = None,
+        language_filter: Optional[str] = None,
     ) -> List[Tuple[StoredDoc, float]]:
         """
         Retrieve documents by vector similarity using ANN search.
@@ -553,6 +563,7 @@ class RedisVectorStore:
             top_k: Maximum number of results
             min_similarity: Minimum similarity threshold (0.0 to 1.0 for cosine)
             ef_runtime: Optional HNSW ef parameter for this query
+            language_filter: Optional ISO 639-1 language code to filter by
             
         Returns:
             List of (document, similarity_score) tuples, sorted by score descending
@@ -568,15 +579,19 @@ class RedisVectorStore:
 
         index_name = self._vector_config.name
 
-        # Build KNN query
+        # Build KNN query with optional language filter
         # For COSINE distance in Redis, score is 1 - cosine_similarity
         # So we need to convert: similarity = 1 - score
-        query_str = f"*=>[KNN {top_k} @embedding $vec AS score]"
+        if language_filter:
+            # Filter by language_code tag before KNN
+            query_str = f"(@language_code:{{{language_filter}}})=>[KNN {top_k} @embedding $vec AS score]"
+        else:
+            query_str = f"*=>[KNN {top_k} @embedding $vec AS score]"
         
         query = (
             Query(query_str)
             .sort_by("score", asc=True)  # Lower score = higher similarity for cosine
-            .return_fields("content", "meta", "score")
+            .return_fields("content", "meta", "score", "language_code")
             .dialect(2)
             .paging(0, top_k)
         )
