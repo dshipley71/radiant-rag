@@ -1351,8 +1351,9 @@ class RadiantRAG:
             # Drop the Redis vector index and documents
             self._store.drop_index(delete_documents=True)
             
-            # Recreate empty index
-            self._store._ensure_index()
+            # Recreate empty index with correct embedding dimension
+            embedding_dim = self._llm_clients.local.embedding_dim
+            self._store._ensure_index(embedding_dim)
             
             # Clear BM25 index unless told to keep it
             if not keep_bm25:
