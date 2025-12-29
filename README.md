@@ -183,6 +183,7 @@ sudo apt-get install redis-stack-server
 
 ```bash
 # Clone or extract the package
+git clone https://github.com/dshipley71/radiant-rag.git
 cd radiant-rag
 
 # Install as package (recommended)
