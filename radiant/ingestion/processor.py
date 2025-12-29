@@ -978,6 +978,41 @@ class TranslatingDocumentProcessor:
                 logger.error(f"Failed to process {file_path}: {e}")
         
         return all_chunks
+
+    def process_paths(
+        self,
+        paths: Sequence[str],
+        split_large_chunks: bool = False,
+        max_chunk_size: int = 2000,
+    ) -> Dict[str, List[IngestedChunk]]:
+        """
+        Process multiple paths with translation.
+
+        Args:
+            paths: File or directory paths
+            split_large_chunks: Whether to split large chunks
+            max_chunk_size: Maximum chunk size before splitting
+
+        Returns:
+            Dictionary mapping file paths to their chunks
+        """
+        files = iter_input_files(paths)
+        results: Dict[str, List[IngestedChunk]] = {}
+
+        for fp in files:
+            file_path = str(fp)
+            try:
+                chunks = self.process_file(
+                    file_path,
+                    split_large_chunks=split_large_chunks,
+                    max_chunk_size=max_chunk_size,
+                )
+                results[file_path] = chunks
+            except Exception as e:
+                logger.error(f"Failed to process {file_path}: {e}")
+                results[file_path] = []
+
+        return results
     
     @property
     def translation_enabled(self) -> bool:
