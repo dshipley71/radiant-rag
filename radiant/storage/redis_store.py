@@ -781,6 +781,8 @@ class RedisVectorStore(BaseVectorStore):
         List document IDs that have embeddings stored.
         
         Uses the vector index to efficiently find indexed documents.
+        For large limits (>10000), uses batched pagination to work around
+        Redis Search's 10000 result limit.
         
         Args:
             limit: Maximum number of IDs to return
@@ -793,21 +795,47 @@ class RedisVectorStore(BaseVectorStore):
         
         index_name = self._vector_config.name
         
+        # Redis Search has a hard limit of 10000 results per query
+        REDIS_SEARCH_MAX_LIMIT = 10000
+        
         try:
-            # Query all documents in index
-            query = Query("*").return_fields("__key").paging(0, limit)
-            results = self._r.ft(index_name).search(query)
-            
             ids: List[str] = []
-            for doc in results.docs:
-                key = doc.id
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8")
-                parts = key.split(":")
-                if len(parts) >= 3:
-                    ids.append(parts[-1])
+            offset = 0
+            batch_size = min(limit, REDIS_SEARCH_MAX_LIMIT)
+            
+            while len(ids) < limit:
+                remaining = limit - len(ids)
+                fetch_size = min(batch_size, remaining)
+                
+                # Query documents in batches using LIMIT offset, count
+                query = Query("*").return_fields("__key").paging(offset, fetch_size)
+                results = self._r.ft(index_name).search(query)
+                
+                if not results.docs:
+                    # No more results
+                    break
+                
+                for doc in results.docs:
+                    key = doc.id
+                    if isinstance(key, bytes):
+                        key = key.decode("utf-8")
+                    parts = key.split(":")
+                    if len(parts) >= 3:
+                        ids.append(parts[-1])
+                
+                # Check if we got fewer results than requested (end of data)
+                if len(results.docs) < fetch_size:
+                    break
+                
+                offset += fetch_size
+                
+                # Safety check to avoid infinite loops
+                if offset > 1_000_000:
+                    logger.warning("list_doc_ids_with_embeddings: exceeded 1M offset, stopping")
+                    break
             
             return ids
+            
         except redis.ResponseError as e:
             logger.warning(f"Index query failed, falling back to scan: {e}")
             # Fallback to scanning
