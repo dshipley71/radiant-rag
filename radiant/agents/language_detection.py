@@ -214,8 +214,32 @@ class LanguageDetectionAgent:
             
             result = fast_detect(sample)
             
-            lang_code = result.get("lang", self._fallback_language)
-            confidence = float(result.get("score", 0.0))
+            # Handle different return formats from fast-langdetect
+            # Newer versions may return a list of tuples or a DetectResult object
+            if isinstance(result, dict):
+                # Dict format: {"lang": "en", "score": 0.99}
+                lang_code = result.get("lang", self._fallback_language)
+                confidence = float(result.get("score", 0.0))
+            elif isinstance(result, (list, tuple)):
+                # List/tuple format: [("en", 0.99)] or ("en", 0.99)
+                if len(result) > 0:
+                    first_result = result[0] if isinstance(result[0], (list, tuple)) else result
+                    lang_code = str(first_result[0]) if len(first_result) > 0 else self._fallback_language
+                    confidence = float(first_result[1]) if len(first_result) > 1 else 0.0
+                else:
+                    lang_code = self._fallback_language
+                    confidence = 0.0
+            elif hasattr(result, 'lang') and hasattr(result, 'score'):
+                # DetectResult object with attributes
+                lang_code = str(result.lang)
+                confidence = float(result.score)
+            else:
+                # Unknown format - try string conversion
+                lang_code = str(result)[:2].lower() if result else self._fallback_language
+                confidence = 0.5
+            
+            # Normalize language code
+            lang_code = lang_code.lower().strip()
             
             # Check if confidence meets threshold
             if confidence >= self._min_confidence:
