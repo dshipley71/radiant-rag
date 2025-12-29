@@ -56,6 +56,20 @@ qwen-vl-utils>=0.0.8
 requests>=2.31.0
 
 # =============================================================================
+# Storage Backend Dependencies
+# =============================================================================
+# Redis is the default backend (already included above)
+# For alternative backends, install the appropriate package:
+
+# ChromaDB - Lightweight embedded vector database
+# Uncomment to use Chroma backend:
+# chromadb>=0.4.0
+
+# PostgreSQL with pgvector - Production-grade vector storage
+# Uncomment to use PgVector backend:
+# psycopg2-binary>=2.9.0
+
+# =============================================================================
 # Optional Dependencies (uncomment as needed)
 # =============================================================================
 

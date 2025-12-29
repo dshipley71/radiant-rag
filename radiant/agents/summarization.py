@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient
-    from radiant.storage.redis_store import StoredDoc
+    from radiant.storage.base import StoredDoc
     from radiant.utils.conversation import ConversationTurn
 
 logger = logging.getLogger(__name__)

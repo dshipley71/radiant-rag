@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from radiant.config import AppConfig, load_config, setup_logging
 from radiant.utils.metrics import MetricsCollector
-from radiant.storage.redis_store import RedisVectorStore
+from radiant.storage import create_vector_store, StoredDoc
 from radiant.storage.bm25_index import PersistentBM25Index
 from radiant.utils.conversation import ConversationManager, ConversationStore
 from radiant.llm.client import LLMClients
@@ -88,7 +88,8 @@ class RadiantRAG:
             self._config.parsing,
         )
         
-        self._store = RedisVectorStore(self._config.redis)
+        # Create vector store using factory (supports redis, chroma, pgvector)
+        self._store = create_vector_store(self._config)
         
         self._bm25_index = PersistentBM25Index(
             self._config.bm25,
@@ -197,8 +198,8 @@ class RadiantRAG:
         return self._config
 
     @property
-    def store(self) -> RedisVectorStore:
-        """Get Redis store."""
+    def store(self):
+        """Get vector store (Redis, Chroma, or PgVector)."""
         return self._store
 
     @property
@@ -382,7 +383,12 @@ class RadiantRAG:
         child_size: int,
         child_overlap: int,
     ) -> int:
-        """Ingest chunks with hierarchical (parent/child) structure."""
+        """Ingest chunks with hierarchical (parent/child) structure.
+        
+        When embed_parents is enabled in config, parent documents are also
+        embedded and can be retrieved via similarity search. Otherwise,
+        only child chunks are embedded (default behavior).
+        """
         from radiant.ingestion.processor import ChunkSplitter
         
         if not chunks:
@@ -390,22 +396,32 @@ class RadiantRAG:
 
         ingestion_cfg = self._config.ingestion
         splitter = ChunkSplitter(child_size, child_overlap)
+        embed_parents = ingestion_cfg.embed_parents
 
         if not ingestion_cfg.batch_enabled:
             # Synchronous mode (legacy)
             stored = 0
             for chunk in chunks:
-                # Parent document (no embedding, for context)
-                parent_id = self._store.make_doc_id(
-                    chunk.content,
-                    {**chunk.meta, "doc_level": "parent"},
-                )
+                # Parent document
+                parent_meta = {**chunk.meta, "doc_level": "parent"}
+                parent_id = self._store.make_doc_id(chunk.content, parent_meta)
                 
-                self._store.upsert_doc_only(
-                    doc_id=parent_id,
-                    content=chunk.content,
-                    meta={**chunk.meta, "doc_level": "parent"},
-                )
+                if embed_parents:
+                    # Embed and store parent
+                    parent_embedding = self._llm_clients.local.embed_single(chunk.content)
+                    self._store.upsert(
+                        doc_id=parent_id,
+                        content=chunk.content,
+                        embedding=parent_embedding,
+                        meta=parent_meta,
+                    )
+                else:
+                    # Store parent without embedding (original behavior)
+                    self._store.upsert_doc_only(
+                        doc_id=parent_id,
+                        content=chunk.content,
+                        meta=parent_meta,
+                    )
                 stored += 1
 
                 # Create child chunks
@@ -439,18 +455,16 @@ class RadiantRAG:
 
         # First pass: collect all parent docs and child info
         parent_docs = []
-        child_info = []  # List of (parent_id, child_text, child_meta)
+        child_info = []  # List of (child_id, child_text, child_meta)
 
         for chunk in chunks:
-            parent_id = self._store.make_doc_id(
-                chunk.content,
-                {**chunk.meta, "doc_level": "parent"},
-            )
+            parent_meta = {**chunk.meta, "doc_level": "parent"}
+            parent_id = self._store.make_doc_id(chunk.content, parent_meta)
             
             parent_docs.append({
                 "doc_id": parent_id,
                 "content": chunk.content,
-                "meta": {**chunk.meta, "doc_level": "parent"},
+                "meta": parent_meta,
             })
 
             child_texts = splitter.split(chunk.content)
@@ -465,10 +479,30 @@ class RadiantRAG:
                 child_id = self._store.make_doc_id(child_text, child_meta)
                 child_info.append((child_id, child_text, child_meta))
 
-        # Batch upsert parent documents (no embeddings)
-        for i in range(0, len(parent_docs), redis_batch_size):
-            batch = parent_docs[i:i + redis_batch_size]
-            stored += self._store.upsert_doc_only_batch(batch)
+        # Handle parent documents
+        if embed_parents:
+            # Generate embeddings for parents
+            parent_texts = [p["content"] for p in parent_docs]
+            parent_embeddings: List[List[float]] = []
+            
+            for i in range(0, len(parent_texts), embed_batch_size):
+                batch_texts = parent_texts[i:i + embed_batch_size]
+                batch_embeddings = self._llm_clients.local.embed(batch_texts)
+                parent_embeddings.extend(batch_embeddings)
+            
+            # Add embeddings to parent docs
+            for doc, embedding in zip(parent_docs, parent_embeddings):
+                doc["embedding"] = embedding
+            
+            # Batch upsert parent documents with embeddings
+            for i in range(0, len(parent_docs), redis_batch_size):
+                batch = parent_docs[i:i + redis_batch_size]
+                stored += self._store.upsert_batch(batch)
+        else:
+            # Batch upsert parent documents without embeddings (original behavior)
+            for i in range(0, len(parent_docs), redis_batch_size):
+                batch = parent_docs[i:i + redis_batch_size]
+                stored += self._store.upsert_doc_only_batch(batch)
 
         # Generate embeddings for all children in batches
         child_texts_only = [c[1] for c in child_info]

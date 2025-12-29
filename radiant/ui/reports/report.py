@@ -23,7 +23,7 @@ from rich.text import Text
 from rich import box
 
 from radiant.utils.metrics import RunMetrics
-from radiant.storage.redis_store import StoredDoc
+from radiant.storage.base import StoredDoc
 
 logger = logging.getLogger(__name__)
 

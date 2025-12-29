@@ -104,7 +104,7 @@ If no good URLs come to mind, return an empty array: []"""
         Fetch URLs and convert to StoredDoc format.
         """
         from radiant.ingestion.web_crawler import WebCrawler
-        from radiant.storage.redis_store import StoredDoc
+        from radiant.storage.base import StoredDoc
         
         results: List[Tuple[StoredDoc, float]] = []
         

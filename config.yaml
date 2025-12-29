@@ -82,7 +82,15 @@ local_models:
   embedding_dimension: 384
 
 # -----------------------------------------------------------------------------
-# Redis Configuration
+# Storage Backend Selection
+# -----------------------------------------------------------------------------
+# Choose which vector database backend to use for document storage.
+# Options: "redis" (default), "chroma", "pgvector"
+storage:
+  backend: redis
+
+# -----------------------------------------------------------------------------
+# Redis Configuration (default backend)
 # -----------------------------------------------------------------------------
 redis:
   # Redis connection URL
@@ -123,6 +131,73 @@ redis:
 
     # Distance metric: COSINE, L2, or IP (inner product)
     distance_metric: "COSINE"
+
+# -----------------------------------------------------------------------------
+# Chroma Configuration (alternative backend)
+# -----------------------------------------------------------------------------
+# ChromaDB is a lightweight, embedded vector database that stores data locally.
+# Good for development, testing, and smaller deployments.
+chroma:
+  # Directory to persist Chroma data
+  persist_directory: "./data/chroma_db"
+
+  # Collection name for storing documents
+  collection_name: "radiant_docs"
+
+  # Distance function: "cosine", "l2", "ip" (inner product)
+  distance_fn: "cosine"
+
+  # Embedding dimension (must match embed_model_name output)
+  embedding_dimension: 384
+
+  # Maximum characters per document content
+  max_content_chars: 200000
+
+# -----------------------------------------------------------------------------
+# PgVector Configuration (alternative backend)
+# -----------------------------------------------------------------------------
+# PostgreSQL with pgvector extension for production-grade vector storage.
+# Requires PostgreSQL server with pgvector extension installed.
+pgvector:
+  # PostgreSQL connection string (or use PG_CONN_STR environment variable)
+  # Format: "postgresql://USER:PASSWORD@HOST:PORT/DB_NAME"
+  connection_string: null
+
+  # Table name for leaf documents (chunks with embeddings)
+  leaf_table_name: "haystack_leaves"
+
+  # Table name for parent documents (full documents without embeddings)
+  parent_table_name: "haystack_parents"
+
+  # Embedding dimension (must match embed_model_name output)
+  embedding_dimension: 384
+
+  # Similarity function: "cosine_similarity", "inner_product", "l2_distance"
+  vector_function: "cosine_similarity"
+
+  # If true, drop and recreate tables on initialization (DESTRUCTIVE)
+  recreate_table: false
+
+  # Search strategy: "exact_nearest_neighbor" or "hnsw"
+  # HNSW is faster for large datasets but requires index creation
+  search_strategy: "hnsw"
+
+  # If true, recreate HNSW index on initialization
+  hnsw_recreate_index_if_exists: false
+
+  # Additional HNSW index creation parameters
+  # Example: {m: 16, ef_construction: 64}
+  hnsw_index_creation_kwargs: {}
+
+  # HNSW ef_search parameter for query time (null = use default)
+  # Higher values = better recall but slower queries
+  hnsw_ef_search: null
+
+  # Language for keyword retrieval text parsing
+  language: "english"
+
+  # Maximum characters per document content
+  max_content_chars: 200000
 
 # -----------------------------------------------------------------------------
 # BM25 Index Configuration
@@ -175,6 +250,12 @@ ingestion:
   # Show progress bar during ingestion
   show_progress: true
 
+  # Embed parent documents in addition to child chunks
+  # When true, parent documents are embedded and can be retrieved directly
+  # This enables search_scope to include "parents" or "all"
+  # When false (default), only child chunks are embedded (original behavior)
+  embed_parents: false
+
 # -----------------------------------------------------------------------------
 # Retrieval Configuration
 # -----------------------------------------------------------------------------
@@ -193,6 +274,14 @@ retrieval:
 
   # Minimum similarity score for dense retrieval (0.0 to 1.0)
   min_similarity: 0.0
+
+  # Search scope for vector retrieval when using hierarchical storage
+  # Options:
+  #   - "leaves" (default): Only search leaf/child chunks
+  #   - "parents": Only search parent documents (requires embed_parents=true)
+  #   - "all": Search both leaves and parents (requires embed_parents=true)
+  # Note: "parents" and "all" only work if embed_parents=true during ingestion
+  search_scope: "leaves"
 
 # -----------------------------------------------------------------------------
 # Reranking Configuration

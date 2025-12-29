@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from radiant.orchestrator import PipelineResult
     from radiant.utils.metrics import RunMetrics, StepMetric
     from radiant.agents import AgentContext
-    from radiant.storage.redis_store import StoredDoc
+    from radiant.storage.base import StoredDoc
 
 
 # =============================================================================

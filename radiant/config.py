@@ -190,6 +190,74 @@ class VectorIndexConfig:
 
 
 @dataclass(frozen=True)
+class ChromaConfig:
+    """Chroma vector database configuration."""
+    # Persistence directory for Chroma DB
+    persist_directory: str = "./data/chroma_db"
+    
+    # Collection name for documents
+    collection_name: str = "radiant_docs"
+    
+    # Distance function: "l2", "ip" (inner product), "cosine"
+    distance_fn: str = "cosine"
+    
+    # Embedding dimension (must match the embedding model)
+    embedding_dimension: int = 384
+    
+    # Maximum content characters (for truncation)
+    max_content_chars: int = 200_000
+
+
+@dataclass(frozen=True)
+class PgVectorConfig:
+    """PostgreSQL with pgvector extension configuration."""
+    # PostgreSQL connection string
+    # Format: "postgresql://USER:PASSWORD@HOST:PORT/DB_NAME"
+    # Can also be set via PG_CONN_STR environment variable
+    connection_string: Optional[str] = None
+    
+    # Table name for leaf documents (chunks with embeddings)
+    leaf_table_name: str = "haystack_leaves"
+    
+    # Table name for parent documents (full documents without embeddings)
+    parent_table_name: str = "haystack_parents"
+    
+    # Embedding dimension (must match the embedding model)
+    embedding_dimension: int = 384
+    
+    # Similarity function: "cosine_similarity", "inner_product", "l2_distance"
+    vector_function: str = "cosine_similarity"
+    
+    # Drop and recreate tables on initialization
+    recreate_table: bool = False
+    
+    # Search strategy: "exact_nearest_neighbor" or "hnsw"
+    search_strategy: str = "hnsw"
+    
+    # Recreate HNSW index on initialization
+    hnsw_recreate_index_if_exists: bool = False
+    
+    # Additional HNSW index creation parameters
+    hnsw_index_creation_kwargs: Dict[str, Any] = field(default_factory=dict)
+    
+    # HNSW ef_search parameter for query time (None = use default)
+    hnsw_ef_search: Optional[int] = None
+    
+    # Language for keyword retrieval text parsing
+    language: str = "english"
+    
+    # Maximum content characters (for truncation)
+    max_content_chars: int = 200_000
+
+
+@dataclass(frozen=True)
+class StorageConfig:
+    """Storage backend configuration."""
+    # Backend type: "redis", "chroma", "pgvector"
+    backend: str = "redis"
+
+
+@dataclass(frozen=True)
 class RedisConfig:
     """Redis connection and storage configuration."""
     url: str = "redis://localhost:6379/0"
@@ -229,6 +297,10 @@ class IngestionConfig:
     child_chunk_overlap: int = 50
     # Show progress bar during ingestion
     show_progress: bool = True
+    # Embed parent documents (enables retrieval from parents)
+    # When False (default), only leaf chunks are embedded and searchable
+    # When True, parent documents are also embedded and can be retrieved
+    embed_parents: bool = False
 
 
 @dataclass(frozen=True)
@@ -239,6 +311,11 @@ class RetrievalConfig:
     fused_top_k: int = 15
     rrf_k: int = 60
     min_similarity: float = 0.0
+    # Search scope for vector retrieval
+    # "leaves" - only search leaf chunks (default, original behavior)
+    # "parents" - only search parent documents (requires embed_parents=True)
+    # "all" - search both leaves and parents (requires embed_parents=True)
+    search_scope: str = "leaves"
 
 
 @dataclass(frozen=True)
@@ -689,7 +766,10 @@ class AppConfig:
     """Main application configuration."""
     ollama: OllamaConfig
     local_models: LocalModelsConfig
+    storage: StorageConfig
     redis: RedisConfig
+    chroma: ChromaConfig
+    pgvector: PgVectorConfig
     bm25: BM25Config
     ingestion: IngestionConfig
     retrieval: RetrievalConfig
@@ -839,6 +919,46 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         vector_index=vector_index,
     )
 
+    # Storage backend selection (redis is default)
+    storage = StorageConfig(
+        backend=_get_config_value(data, "storage", "backend", "redis"),
+    )
+
+    # Chroma configuration
+    chroma = ChromaConfig(
+        persist_directory=_get_config_value(data, "chroma", "persist_directory", "./data/chroma_db"),
+        collection_name=_get_config_value(data, "chroma", "collection_name", "radiant_docs"),
+        distance_fn=_get_config_value(data, "chroma", "distance_fn", "cosine"),
+        embedding_dimension=_get_config_value(data, "chroma", "embedding_dimension", 384, _parse_int),
+        max_content_chars=_get_config_value(data, "chroma", "max_content_chars", 200_000, _parse_int),
+    )
+
+    # PgVector configuration
+    # Connection string can come from config or environment variable
+    pgvector_conn_str = _get_config_value(data, "pgvector", "connection_string", None)
+    if not pgvector_conn_str:
+        pgvector_conn_str = os.environ.get("PG_CONN_STR")
+    
+    # Get HNSW index creation kwargs
+    pgvector_hnsw_kwargs = data.get("pgvector", {}).get("hnsw_index_creation_kwargs", {})
+    if not isinstance(pgvector_hnsw_kwargs, dict):
+        pgvector_hnsw_kwargs = {}
+    
+    pgvector = PgVectorConfig(
+        connection_string=pgvector_conn_str,
+        leaf_table_name=_get_config_value(data, "pgvector", "leaf_table_name", "haystack_leaves"),
+        parent_table_name=_get_config_value(data, "pgvector", "parent_table_name", "haystack_parents"),
+        embedding_dimension=_get_config_value(data, "pgvector", "embedding_dimension", 384, _parse_int),
+        vector_function=_get_config_value(data, "pgvector", "vector_function", "cosine_similarity"),
+        recreate_table=_get_config_value(data, "pgvector", "recreate_table", False, _parse_bool),
+        search_strategy=_get_config_value(data, "pgvector", "search_strategy", "hnsw"),
+        hnsw_recreate_index_if_exists=_get_config_value(data, "pgvector", "hnsw_recreate_index_if_exists", False, _parse_bool),
+        hnsw_index_creation_kwargs=pgvector_hnsw_kwargs,
+        hnsw_ef_search=_get_config_value(data, "pgvector", "hnsw_ef_search", None, _parse_int) or None,
+        language=_get_config_value(data, "pgvector", "language", "english"),
+        max_content_chars=_get_config_value(data, "pgvector", "max_content_chars", 200_000, _parse_int),
+    )
+
     bm25 = BM25Config(
         index_path=_get_config_value(data, "bm25", "index_path", "./data/bm25_index.pkl"),
         max_documents=_get_config_value(data, "bm25", "max_documents", 100_000, _parse_int),
@@ -854,6 +974,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         child_chunk_size=_get_config_value(data, "ingestion", "child_chunk_size", 512, _parse_int),
         child_chunk_overlap=_get_config_value(data, "ingestion", "child_chunk_overlap", 50, _parse_int),
         show_progress=_get_config_value(data, "ingestion", "show_progress", True, _parse_bool),
+        embed_parents=_get_config_value(data, "ingestion", "embed_parents", False, _parse_bool),
     )
 
     retrieval = RetrievalConfig(
@@ -862,6 +983,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         fused_top_k=_get_config_value(data, "retrieval", "fused_top_k", 15, _parse_int),
         rrf_k=_get_config_value(data, "retrieval", "rrf_k", 60, _parse_int),
         min_similarity=_get_config_value(data, "retrieval", "min_similarity", 0.0, _parse_float),
+        search_scope=_get_config_value(data, "retrieval", "search_scope", "leaves"),
     )
 
     rerank = RerankConfig(
@@ -1113,7 +1235,10 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     return AppConfig(
         ollama=ollama,
         local_models=local_models,
+        storage=storage,
         redis=redis,
+        chroma=chroma,
+        pgvector=pgvector,
         bm25=bm25,
         ingestion=ingestion,
         retrieval=retrieval,

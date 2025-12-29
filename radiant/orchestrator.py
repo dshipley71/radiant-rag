@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from radiant.config import AppConfig
 from radiant.utils.metrics import RunMetrics
 from radiant.llm.client import LLMClient, LocalNLPModels
-from radiant.storage.redis_store import RedisVectorStore, StoredDoc
+from radiant.storage.base import BaseVectorStore, StoredDoc
 from radiant.storage.bm25_index import PersistentBM25Index
 from radiant.utils.conversation import ConversationManager
 from radiant.agents import (
@@ -160,7 +160,7 @@ class RAGOrchestrator:
         config: AppConfig,
         llm: LLMClient,
         local: LocalNLPModels,
-        store: RedisVectorStore,
+        store: BaseVectorStore,
         bm25_index: PersistentBM25Index,
         conversation_manager: Optional[ConversationManager] = None,
     ) -> None:
@@ -171,7 +171,7 @@ class RAGOrchestrator:
             config: Application configuration
             llm: LLM client for chat completions
             local: Local NLP models (embedding, cross-encoder)
-            store: Redis vector store
+            store: Vector store (Redis, Chroma, or PgVector)
             bm25_index: BM25 index for sparse retrieval
             conversation_manager: Optional conversation manager
         """
@@ -1287,7 +1287,7 @@ class SimplifiedOrchestrator:
         self,
         llm: LLMClient,
         local: LocalNLPModels,
-        store: RedisVectorStore,
+        store: BaseVectorStore,
         config: AppConfig,
     ) -> None:
         """Initialize simplified orchestrator."""

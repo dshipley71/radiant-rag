@@ -392,6 +392,57 @@ reranking:
   top_k: 5
 ```
 
+### Storage Backend Settings
+
+Radiant RAG supports multiple vector storage backends. Choose the one that best fits your deployment needs:
+
+| Backend | Use Case | Pros | Cons |
+|---------|----------|------|------|
+| **Redis** (default) | Production, low-latency | Fast, feature-rich, real-time | Requires Redis Stack |
+| **Chroma** | Development, testing | Easy setup, embedded | Less scalable |
+| **PgVector** | Enterprise, PostgreSQL shops | Mature, ACID, integrates with existing DB | More setup required |
+
+```yaml
+# Storage backend selection
+storage:
+  backend: redis  # Options: redis, chroma, pgvector
+
+# Redis Configuration (default)
+redis:
+  url: "redis://localhost:6379/0"
+  key_prefix: "radiant"
+  vector_index:
+    name: "radiant_vectors"
+    hnsw_m: 16
+    hnsw_ef_construction: 200
+    distance_metric: "COSINE"
+
+# Chroma Configuration (alternative)
+chroma:
+  persist_directory: "./data/chroma_db"
+  collection_name: "radiant_docs"
+  distance_fn: "cosine"
+
+# PgVector Configuration (alternative)
+pgvector:
+  # Use PG_CONN_STR env var or set here
+  connection_string: "postgresql://user:pass@localhost:5432/radiant"
+  leaf_table_name: "haystack_leaves"
+  parent_table_name: "haystack_parents"
+  vector_function: "cosine_similarity"
+  search_strategy: "hnsw"
+```
+
+To use Chroma, install the optional dependency:
+```bash
+pip install chromadb
+```
+
+To use PgVector, install PostgreSQL with the pgvector extension and the Python driver:
+```bash
+pip install psycopg2-binary
+```
+
 ### Retrieval Settings
 
 ```yaml
@@ -401,6 +452,12 @@ retrieval:
   
   # Number of documents to retrieve
   top_k: 10
+  
+  # Search scope for hierarchical storage
+  # "leaves" - only search leaf chunks (default)
+  # "parents" - only search parent documents (requires embed_parents: true)
+  # "all" - search both leaves and parents (requires embed_parents: true)
+  search_scope: "leaves"
   
   # Dense retrieval settings
   dense:
@@ -432,6 +489,11 @@ ingestion:
   
   # Parent document settings (hierarchical mode)
   parent_chunk_size: 2048
+  
+  # Embed parent documents (enables parent retrieval)
+  # When true, parent documents are embedded alongside child chunks
+  # Required for search_scope: "parents" or "all"
+  embed_parents: false
   
   # Progress display
   show_progress: true

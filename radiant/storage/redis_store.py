@@ -14,13 +14,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import redis
 
 from radiant.config import RedisConfig
+from radiant.storage.base import BaseVectorStore, StoredDoc
 
 # Try to import Redis Search components (requires redis-stack)
 REDIS_SEARCH_IMPORTS_AVAILABLE = False
@@ -122,24 +122,7 @@ def _check_redis_search_module(client: redis.Redis) -> bool:
         return False
 
 
-@dataclass
-class StoredDoc:
-    """Represents a stored document."""
-    
-    doc_id: str
-    content: str
-    meta: Dict[str, Any]
-
-    def __hash__(self) -> int:
-        return hash(self.doc_id)
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, StoredDoc):
-            return False
-        return self.doc_id == other.doc_id
-
-
-class RedisVectorStore:
+class RedisVectorStore(BaseVectorStore):
     """
     Redis-based document and vector storage with ANN search.
     
@@ -554,6 +537,7 @@ class RedisVectorStore:
         min_similarity: float = 0.0,
         ef_runtime: Optional[int] = None,
         language_filter: Optional[str] = None,
+        doc_level_filter: Optional[str] = None,
     ) -> List[Tuple[StoredDoc, float]]:
         """
         Retrieve documents by vector similarity using ANN search.
@@ -564,6 +548,10 @@ class RedisVectorStore:
             min_similarity: Minimum similarity threshold (0.0 to 1.0 for cosine)
             ef_runtime: Optional HNSW ef parameter for this query
             language_filter: Optional ISO 639-1 language code to filter by
+            doc_level_filter: Optional filter by document level:
+                - None or "all": Return both parents and children
+                - "child" or "leaves": Return only leaf/child documents
+                - "parent" or "parents": Return only parent documents
             
         Returns:
             List of (document, similarity_score) tuples, sorted by score descending
@@ -574,17 +562,34 @@ class RedisVectorStore:
         # Fallback to linear scan if Redis Search not available
         if not self._redis_search_available:
             return self._retrieve_by_embedding_linear(
-                query_embedding, top_k, min_similarity
+                query_embedding, top_k, min_similarity, doc_level_filter
             )
 
         index_name = self._vector_config.name
 
-        # Build KNN query with optional language filter
+        # Normalize doc_level_filter
+        level_value = None
+        if doc_level_filter:
+            filter_lower = doc_level_filter.lower()
+            if filter_lower in ("child", "leaves", "leaf"):
+                level_value = "child"
+            elif filter_lower in ("parent", "parents"):
+                level_value = "parent"
+            # "all" or None means no filter
+
+        # Build filter expression
+        filters = []
+        if language_filter:
+            filters.append(f"@language_code:{{{language_filter}}}")
+        if level_value:
+            filters.append(f"@doc_level:{{{level_value}}}")
+
+        # Build KNN query with optional filters
         # For COSINE distance in Redis, score is 1 - cosine_similarity
         # So we need to convert: similarity = 1 - score
-        if language_filter:
-            # Filter by language_code tag before KNN
-            query_str = f"(@language_code:{{{language_filter}}})=>[KNN {top_k} @embedding $vec AS score]"
+        if filters:
+            filter_str = " ".join(filters)
+            query_str = f"({filter_str})=>[KNN {top_k} @embedding $vec AS score]"
         else:
             query_str = f"*=>[KNN {top_k} @embedding $vec AS score]"
         
@@ -655,6 +660,7 @@ class RedisVectorStore:
         query_embedding: List[float],
         top_k: int,
         min_similarity: float = 0.0,
+        doc_level_filter: Optional[str] = None,
     ) -> List[Tuple[StoredDoc, float]]:
         """
         Fallback linear scan retrieval when Redis Search is not available.
@@ -662,6 +668,15 @@ class RedisVectorStore:
         Warning: This is O(n) and not suitable for large document collections.
         """
         logger.debug("Using linear scan fallback for vector retrieval")
+        
+        # Normalize doc_level_filter
+        level_value = None
+        if doc_level_filter:
+            filter_lower = doc_level_filter.lower()
+            if filter_lower in ("child", "leaves", "leaf"):
+                level_value = "child"
+            elif filter_lower in ("parent", "parents"):
+                level_value = "parent"
         
         query_vec = np.array(query_embedding, dtype=np.float32)
         query_norm = np.linalg.norm(query_vec)
@@ -689,6 +704,12 @@ class RedisVectorStore:
             for doc_id, data in zip(batch_ids, results):
                 if not data or b"embedding" not in data:
                     continue
+                
+                # Apply doc_level filter
+                if level_value:
+                    doc_level = data.get(b"doc_level", b"child").decode("utf-8")
+                    if doc_level != level_value:
+                        continue
                 
                 # Get embedding
                 emb_bytes = data.get(b"embedding")

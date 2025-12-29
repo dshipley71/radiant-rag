@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient
-    from radiant.storage.redis_store import RedisVectorStore, StoredDoc
+    from radiant.storage.base import BaseVectorStore, StoredDoc
     from radiant.llm.local_models import LocalNLPModels
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class MultiHopReasoningAgent:
     def __init__(
         self,
         llm: "LLMClient",
-        store: "RedisVectorStore",
+        store: "BaseVectorStore",
         local_models: "LocalNLPModels",
         max_hops: int = 3,
         docs_per_hop: int = 5,
@@ -362,10 +362,12 @@ Maximum 3 sub-questions."""
             # Embed query
             query_vec = self._local.embed_single(query)
             
-            # Retrieve
+            # Retrieve - search all document levels for multihop reasoning
+            # since we may need both children and parents for complex queries
             results = self._store.retrieve_by_embedding(
                 query_vec,
                 top_k=self._docs_per_hop,
+                doc_level_filter=None,  # Search all levels for multihop
             )
             
             return [doc for doc, score in results]

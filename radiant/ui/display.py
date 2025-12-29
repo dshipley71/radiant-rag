@@ -16,7 +16,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from radiant.utils.metrics import RunMetrics, StepMetric
-from radiant.storage.redis_store import StoredDoc
+from radiant.storage.base import StoredDoc
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiant.config import AutoMergeConfig
-    from radiant.storage.redis_store import RedisVectorStore
+    from radiant.storage.base import BaseVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class HierarchicalAutoMergingAgent:
 
     def __init__(
         self,
-        store: "RedisVectorStore",
+        store: "BaseVectorStore",
         config: "AutoMergeConfig",
     ) -> None:
         self._store = store

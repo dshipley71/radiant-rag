@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from radiant.config import BM25Config
-from radiant.storage.redis_store import RedisVectorStore, StoredDoc
+from radiant.storage.base import BaseVectorStore, StoredDoc
 
 logger = logging.getLogger(__name__)
 
@@ -341,14 +341,14 @@ class PersistentBM25Index:
     def __init__(
         self,
         config: BM25Config,
-        store: RedisVectorStore,
+        store: BaseVectorStore,
     ) -> None:
         """
         Initialize persistent BM25 index.
 
         Args:
             config: BM25 configuration
-            store: Redis store for document retrieval
+            store: Vector store for document retrieval (Redis, Chroma, or PgVector)
         """
         self._config = config
         self._store = store
