@@ -435,6 +435,36 @@ class BaseAgent(ABC):
         """
         return None
     
+    def execute(
+        self,
+        correlation_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Execute the agent and return raw data (backward compatible).
+        
+        This is a convenience method for code that doesn't need
+        the full AgentResult wrapper. It calls run() internally
+        and extracts the data.
+        
+        Args:
+            correlation_id: Optional correlation ID for tracing
+            **kwargs: Agent-specific arguments
+            
+        Returns:
+            The raw result data from _execute()
+            
+        Raises:
+            RuntimeError: If execution fails and no fallback is available
+        """
+        result = self.run(correlation_id=correlation_id, **kwargs)
+        
+        if not result.success and result.data is None:
+            error_msg = result.error or "Unknown error"
+            raise RuntimeError(f"{self.name} failed: {error_msg}")
+        
+        return result.data
+
     def run(
         self,
         correlation_id: Optional[str] = None,

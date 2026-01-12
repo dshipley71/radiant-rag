@@ -9,16 +9,18 @@ Coordinates the execution of all pipeline agents with:
 - Strategy memory for adaptive behavior
 - Pre-generation context evaluation
 - Context summarization and compression
+- Metrics collection via Prometheus/OpenTelemetry
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypeVar
 
 from radiant.config import AppConfig
 from radiant.utils.metrics import RunMetrics
+from radiant.utils.metrics_export import MetricsCollector, get_metrics_collector
 from radiant.llm.client import LLMClient, LocalNLPModels
 from radiant.storage.base import BaseVectorStore
 from radiant.storage.bm25_index import PersistentBM25Index
@@ -46,6 +48,8 @@ from radiant.agents import (
     FactVerificationAgent,
     CitationTrackingAgent,
     CitationStyle,
+    # Base classes for type checking
+    AgentResult,
 )
 from radiant.agents.tools import (
     ToolRegistry,
@@ -55,6 +59,40 @@ from radiant.agents.tools import (
 from radiant.agents.strategy_memory import RetrievalStrategyMemory
 
 logger = logging.getLogger(__name__)
+
+# Type variable for AgentResult data extraction
+T = TypeVar('T')
+
+
+def _extract_agent_data(
+    result: AgentResult[T],
+    default: T,
+    agent_name: str = "Agent",
+    metrics_collector: Optional[MetricsCollector] = None,
+) -> T:
+    """
+    Extract data from AgentResult with fallback.
+    
+    Args:
+        result: AgentResult from agent.run()
+        default: Default value if extraction fails
+        agent_name: Agent name for logging
+        metrics_collector: Optional metrics collector
+        
+    Returns:
+        The extracted data or default value
+    """
+    # Record metrics if collector provided
+    if metrics_collector:
+        metrics_collector.record(result)
+    
+    if result.success and result.data is not None:
+        return result.data
+    
+    if result.error:
+        logger.warning(f"{agent_name} failed: {result.error}")
+    
+    return default
 
 
 # Low confidence response template
@@ -152,6 +190,7 @@ class RAGOrchestrator:
     - Strategy memory for learning optimal retrieval strategies
     - Pre-generation context evaluation
     - Context summarization and compression
+    - Metrics collection via Prometheus/OpenTelemetry
     """
 
     def __init__(
@@ -162,6 +201,7 @@ class RAGOrchestrator:
         store: BaseVectorStore,
         bm25_index: PersistentBM25Index,
         conversation_manager: Optional[ConversationManager] = None,
+        metrics_collector: Optional[MetricsCollector] = None,
     ) -> None:
         """
         Initialize the agentic orchestrator.
@@ -173,12 +213,16 @@ class RAGOrchestrator:
             store: Vector store (Redis, Chroma, or PgVector)
             bm25_index: BM25 index for sparse retrieval
             conversation_manager: Optional conversation manager
+            metrics_collector: Optional metrics collector for Prometheus/OTel
         """
         self._config = config
         self._pipeline_config = config.pipeline
         self._agentic_config = config.agentic
         self._conversation = conversation_manager
         self._llm = llm  # Store for new agents
+        
+        # Initialize metrics collector
+        self._metrics_collector = metrics_collector or get_metrics_collector()
 
         # Initialize strategy memory
         self._strategy_memory: Optional[RetrievalStrategyMemory] = None
@@ -567,26 +611,39 @@ class RAGOrchestrator:
 
         with metrics.track_step("PlanningAgent") as step:
             try:
-                ctx.plan = self._planning_agent.run(ctx.original_query)
+                result = self._planning_agent.run(
+                    correlation_id=ctx.run_id,
+                    query=ctx.original_query,
+                )
+                ctx.plan = _extract_agent_data(
+                    result,
+                    default=self._default_plan(),
+                    agent_name="PlanningAgent",
+                    metrics_collector=self._metrics_collector,
+                )
                 step.extra["plan"] = ctx.plan
                 step.extra["retrieval_mode"] = ctx.plan.get("retrieval_mode", "hybrid")
                 step.extra["tools"] = ctx.plan.get("tools_to_use", [])
             except Exception as e:
                 logger.warning(f"Planning failed, using defaults: {e}")
                 metrics.mark_degraded("planning", str(e))
-                ctx.plan = {
-                    "use_decomposition": True,
-                    "use_rewrite": True,
-                    "use_expansion": True,
-                    "use_rrf": True,
-                    "use_automerge": True,
-                    "use_rerank": True,
-                    "use_critic": True,
-                    "retrieval_mode": "hybrid",
-                    "tools_to_use": [],
-                }
+                ctx.plan = self._default_plan()
 
         return ctx.plan
+    
+    def _default_plan(self) -> Dict[str, Any]:
+        """Return the default execution plan."""
+        return {
+            "use_decomposition": True,
+            "use_rewrite": True,
+            "use_expansion": True,
+            "use_rrf": True,
+            "use_automerge": True,
+            "use_rerank": True,
+            "use_critic": True,
+            "retrieval_mode": "hybrid",
+            "tools_to_use": [],
+        }
 
     def _run_tools(
         self,
@@ -636,8 +693,15 @@ class RAGOrchestrator:
         if plan.get("use_decomposition", True) and not is_retry:
             with metrics.track_step("QueryDecompositionAgent") as step:
                 try:
-                    ctx.decomposed_queries = self._decomposition_agent.run(
-                        ctx.original_query
+                    result = self._decomposition_agent.run(
+                        correlation_id=ctx.run_id,
+                        query=ctx.original_query,
+                    )
+                    ctx.decomposed_queries = _extract_agent_data(
+                        result,
+                        default=[ctx.original_query],
+                        agent_name="QueryDecompositionAgent",
+                        metrics_collector=self._metrics_collector,
                     )
                     queries = ctx.decomposed_queries
                     step.extra["num_queries"] = len(queries)
@@ -653,8 +717,17 @@ class RAGOrchestrator:
                 try:
                     rewrites = []
                     for q in queries:
-                        before, after = self._rewrite_agent.run(q)
-                        rewrites.append((before, after))
+                        result = self._rewrite_agent.run(
+                            correlation_id=ctx.run_id,
+                            query=q,
+                        )
+                        rewrite_data = _extract_agent_data(
+                            result,
+                            default=(q, q),
+                            agent_name="QueryRewriteAgent",
+                            metrics_collector=self._metrics_collector,
+                        )
+                        rewrites.append(rewrite_data)
                     ctx.rewrites = rewrites
                     queries = [after for _, after in rewrites]
                     step.extra["num_rewrites"] = len(rewrites)
@@ -669,7 +742,16 @@ class RAGOrchestrator:
                 try:
                     expansions = []
                     for q in queries:
-                        expanded = self._expansion_agent.run(q)
+                        result = self._expansion_agent.run(
+                            correlation_id=ctx.run_id,
+                            query=q,
+                        )
+                        expanded = _extract_agent_data(
+                            result,
+                            default=[],
+                            agent_name="QueryExpansionAgent",
+                            metrics_collector=self._metrics_collector,
+                        )
                         expansions.extend(expanded)
                     ctx.expansions = expansions
                     # Add expansions to queries
@@ -697,7 +779,16 @@ class RAGOrchestrator:
                     all_results = []
                     seen_ids = set()
                     for query in queries:
-                        results = self._dense_retrieval.run(query)
+                        result = self._dense_retrieval.run(
+                            correlation_id=ctx.run_id,
+                            query=query,
+                        )
+                        results = _extract_agent_data(
+                            result,
+                            default=[],
+                            agent_name="DenseRetrievalAgent",
+                            metrics_collector=self._metrics_collector,
+                        )
                         for doc, score in results:
                             doc_id = getattr(doc, 'doc_id', id(doc))
                             if doc_id not in seen_ids:
@@ -724,7 +815,16 @@ class RAGOrchestrator:
                     all_results = []
                     seen_ids = set()
                     for query in queries:
-                        results = self._bm25_retrieval.run(query)
+                        result = self._bm25_retrieval.run(
+                            correlation_id=ctx.run_id,
+                            query=query,
+                        )
+                        results = _extract_agent_data(
+                            result,
+                            default=[],
+                            agent_name="BM25RetrievalAgent",
+                            metrics_collector=self._metrics_collector,
+                        )
                         for doc, score in results:
                             doc_id = getattr(doc, 'doc_id', id(doc))
                             if doc_id not in seen_ids:
@@ -748,8 +848,16 @@ class RAGOrchestrator:
         if self._web_search_agent and plan.get("use_web_search", False):
             with metrics.track_step("WebSearchAgent") as step:
                 try:
-                    ctx.web_search_retrieved = self._web_search_agent.run(
-                        ctx.original_query, plan
+                    result = self._web_search_agent.run(
+                        correlation_id=ctx.run_id,
+                        query=ctx.original_query,
+                        plan=plan,
+                    )
+                    ctx.web_search_retrieved = _extract_agent_data(
+                        result,
+                        default=[],
+                        agent_name="WebSearchAgent",
+                        metrics_collector=self._metrics_collector,
                     )
                     step.extra["num_retrieved"] = len(ctx.web_search_retrieved)
                 except Exception as e:
@@ -784,7 +892,16 @@ class RAGOrchestrator:
         if len(retrieval_lists) > 1 and plan.get("use_rrf", True):
             with metrics.track_step("RRFAgent") as step:
                 try:
-                    ctx.fused = self._rrf_agent.run(retrieval_lists)
+                    result = self._rrf_agent.run(
+                        correlation_id=ctx.run_id,
+                        retrieval_lists=retrieval_lists,
+                    )
+                    ctx.fused = _extract_agent_data(
+                        result,
+                        default=retrieval_lists[0] if retrieval_lists else [],
+                        agent_name="RRFAgent",
+                        metrics_collector=self._metrics_collector,
+                    )
                     step.extra["num_fused"] = len(ctx.fused)
                     step.extra["sources"] = len(retrieval_lists)
                 except Exception as e:
@@ -813,7 +930,16 @@ class RAGOrchestrator:
         if plan.get("use_automerge", True):
             with metrics.track_step("AutoMergingAgent") as step:
                 try:
-                    ctx.auto_merged = self._automerge_agent.run(current_docs)
+                    result = self._automerge_agent.run(
+                        correlation_id=ctx.run_id,
+                        docs=current_docs,
+                    )
+                    ctx.auto_merged = _extract_agent_data(
+                        result,
+                        default=current_docs,
+                        agent_name="AutoMergingAgent",
+                        metrics_collector=self._metrics_collector,
+                    )
                     current_docs = ctx.auto_merged
                     step.extra["num_docs"] = len(ctx.auto_merged)
                 except Exception as e:
@@ -827,9 +953,16 @@ class RAGOrchestrator:
         if plan.get("use_rerank", True):
             with metrics.track_step("RerankingAgent") as step:
                 try:
-                    ctx.reranked = self._rerank_agent.run(
-                        ctx.original_query,
-                        ctx.auto_merged,
+                    result = self._rerank_agent.run(
+                        correlation_id=ctx.run_id,
+                        query=ctx.original_query,
+                        docs=ctx.auto_merged,
+                    )
+                    ctx.reranked = _extract_agent_data(
+                        result,
+                        default=ctx.auto_merged,
+                        agent_name="RerankingAgent",
+                        metrics_collector=self._metrics_collector,
                     )
                     step.extra["num_reranked"] = len(ctx.reranked)
                 except Exception as e:
@@ -989,19 +1122,26 @@ class RAGOrchestrator:
         tool_context = ""
         if ctx.tool_results:
             tool_parts = []
-            for result in ctx.tool_results:
-                if result.get("success") and result.get("output"):
-                    tool_parts.append(f"[Tool: {result.get('tool_name')}] {result.get('output')}")
+            for tool_result in ctx.tool_results:
+                if tool_result.get("success") and tool_result.get("output"):
+                    tool_parts.append(f"[Tool: {tool_result.get('tool_name')}] {tool_result.get('output')}")
             if tool_parts:
                 tool_context = "\n\nTool Results:\n" + "\n".join(tool_parts)
 
         # Answer synthesis
         step_name = "AnswerSynthesisAgent" + ("_retry" if is_retry else "")
         with metrics.track_step(step_name) as step:
-            ctx.final_answer = self._synthesis_agent.run(
-                ctx.original_query,
-                context_docs,
-                ctx.conversation_history + tool_context,
+            result = self._synthesis_agent.run(
+                correlation_id=ctx.run_id,
+                query=ctx.original_query,
+                context=context_docs,
+                conversation_history=ctx.conversation_history + tool_context,
+            )
+            ctx.final_answer = _extract_agent_data(
+                result,
+                default="I was unable to generate an answer. Please try again.",
+                agent_name="AnswerSynthesisAgent",
+                metrics_collector=self._metrics_collector,
             )
             step.extra["answer_length"] = len(ctx.final_answer)
             step.extra["retry_count"] = retry_count
@@ -1021,12 +1161,19 @@ class RAGOrchestrator:
         step_name = "CriticAgent" + ("_retry" if is_retry else "")
         with metrics.track_step(step_name) as step:
             try:
-                critique = self._critic_agent.run(
-                    ctx.original_query,
-                    ctx.final_answer,
-                    context_docs,
+                result = self._critic_agent.run(
+                    correlation_id=ctx.run_id,
+                    query=ctx.original_query,
+                    answer=ctx.final_answer,
+                    context=context_docs,
                     is_retry=is_retry,
                     retry_count=retry_count,
+                )
+                critique = _extract_agent_data(
+                    result,
+                    default={"ok": True, "confidence": 0.5, "should_retry": False},
+                    agent_name="CriticAgent",
+                    metrics_collector=self._metrics_collector,
                 )
                 ctx.critic_notes.append(critique)
                 step.extra["confidence"] = critique.get("confidence", 0.5)
@@ -1096,43 +1243,56 @@ class RAGOrchestrator:
                 # Get initial context from already retrieved docs
                 initial_context = [doc for doc, _ in ctx.fused] if ctx.fused else None
                 
-                result = self._multihop_agent.run(
+                agent_result = self._multihop_agent.run(
+                    correlation_id=ctx.run_id,
                     query=ctx.original_query,
                     initial_context=initial_context,
                     force_multihop=force_multihop,
                 )
                 
-                step.extra["requires_multihop"] = result.requires_multihop
-                step.extra["total_hops"] = result.total_hops
-                step.extra["success"] = result.success
+                # Record metrics
+                if self._metrics_collector:
+                    self._metrics_collector.record(agent_result)
                 
-                if result.requires_multihop and result.success:
+                # Extract the multihop result data
+                multihop_result = agent_result.data if agent_result.success else None
+                
+                if multihop_result is None:
+                    ctx.multihop_used = False
+                    ctx.multihop_hops = 0
+                    return None
+                
+                step.extra["requires_multihop"] = multihop_result.requires_multihop
+                step.extra["total_hops"] = multihop_result.total_hops
+                step.extra["success"] = multihop_result.success
+                
+                if multihop_result.requires_multihop and multihop_result.success:
                     # Store multi-hop metadata in context
                     ctx.multihop_used = True
-                    ctx.multihop_hops = result.total_hops
+                    ctx.multihop_hops = multihop_result.total_hops
                     
                     # Merge multi-hop context with existing fused results
                     # Add new documents to the context
                     existing_ids = {getattr(doc, 'doc_id', id(doc)) for doc, _ in ctx.fused}
                     
-                    for doc in result.final_context:
+                    for doc in multihop_result.final_context:
                         doc_id = getattr(doc, 'doc_id', id(doc))
                         if doc_id not in existing_ids:
                             # Add with a reasonable score
                             ctx.fused.append((doc, 0.7))
                             existing_ids.add(doc_id)
                     
-                    step.extra["docs_added"] = len(result.final_context)
+                    step.extra["docs_added"] = len(multihop_result.final_context)
                     
                     logger.info(
                         f"[{ctx.run_id}] Multi-hop reasoning complete: "
-                        f"{result.total_hops} hops, {len(result.final_context)} docs"
+                        f"{multihop_result.total_hops} hops, {len(multihop_result.final_context)} docs"
                     )
                 else:
                     ctx.multihop_used = False
                     ctx.multihop_hops = 0
                 
-                return result
+                return multihop_result
                 
             except Exception as e:
                 logger.warning(f"Multi-hop reasoning failed: {e}")
