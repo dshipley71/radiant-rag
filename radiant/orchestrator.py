@@ -14,14 +14,13 @@ Coordinates the execution of all pipeline agents with:
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from radiant.config import AppConfig
 from radiant.utils.metrics import RunMetrics
 from radiant.llm.client import LLMClient, LocalNLPModels
-from radiant.storage.base import BaseVectorStore, StoredDoc
+from radiant.storage.base import BaseVectorStore
 from radiant.storage.bm25_index import PersistentBM25Index
 from radiant.utils.conversation import ConversationManager
 from radiant.agents import (
@@ -354,7 +353,6 @@ class RAGOrchestrator:
 
             # Main retrieval-generation loop with critic retry
             max_retries = self._agentic_config.max_critic_retries
-            confidence_threshold = self._agentic_config.confidence_threshold
             
             for attempt in range(max_retries + 1):
                 is_retry = attempt > 0

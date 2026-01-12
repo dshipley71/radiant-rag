@@ -10,6 +10,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.config import CriticConfig
     from radiant.llm.client import LLMClient
@@ -44,7 +50,7 @@ class CritiqueResult:
         }
 
 
-class CriticAgent:
+class CriticAgent(LLMAgent):
     """
     Evaluates answer quality and provides confidence scoring.
 
@@ -56,17 +62,42 @@ class CriticAgent:
         self,
         llm: "LLMClient",
         config: "CriticConfig",
+        enabled: bool = True,
     ) -> None:
-        self._llm = llm
+        """
+        Initialize the critic agent.
+        
+        Args:
+            llm: LLM client for evaluation
+            config: Critic configuration
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(llm=llm, enabled=enabled)
         self._config = config
 
-    def run(
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "CriticAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.EVALUATION
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Evaluates answer quality and provides confidence scoring"
+
+    def _execute(
         self,
         query: str,
         answer: str,
         context_docs: List[Any],
         is_retry: bool = False,
         retry_count: int = 0,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Critique the generated answer with confidence scoring.
@@ -145,14 +176,14 @@ ANSWER:
 
 Return JSON critique only."""
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default=self._default_result(),
             expected_type=dict,
         )
 
-        if not response.success:
+        if not result:
             return self._default_result()
 
         # Ensure all required fields with proper types
@@ -160,12 +191,16 @@ Return JSON critique only."""
         
         # Log confidence level
         conf = result.get("confidence", 0.5)
-        logger.info(f"Critic evaluation: confidence={conf:.2f}, ok={result.get('ok', True)}")
+        self.logger.info(
+            "Critique completed",
+            confidence=f"{conf:.2f}",
+            ok=result.get("ok", True),
+        )
         
         if not result.get("ok", True):
             issues = result.get("issues", [])
             if issues:
-                logger.warning(f"Critic found issues: {issues}")
+                self.logger.warning(f"Issues found: {issues}")
 
         return result
     
@@ -189,9 +224,13 @@ Return JSON critique only."""
         
         # Quick heuristic based on scores if available
         scores = []
-        for doc, score in docs[:10] if isinstance(docs[0], tuple) else [(d, 0.5) for d in docs[:10]]:
-            if isinstance(score, (int, float)):
-                scores.append(score)
+        for item in docs[:10]:
+            if isinstance(item, tuple):
+                doc, score = item
+                if isinstance(score, (int, float)):
+                    scores.append(score)
+            else:
+                scores.append(0.5)
         
         if scores:
             avg_score = sum(scores) / len(scores)
@@ -278,3 +317,15 @@ Return JSON critique only."""
             return True
         
         return False
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Provide fallback critique on error.
+        """
+        self.logger.warning(f"Critique failed, using fallback: {error}")
+        return self._default_result()

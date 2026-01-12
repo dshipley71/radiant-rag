@@ -9,6 +9,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    BaseAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.config import AutoMergeConfig
     from radiant.storage.base import BaseVectorStore
@@ -16,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class HierarchicalAutoMergingAgent:
+class HierarchicalAutoMergingAgent(BaseAgent):
     """
     Auto-merges child chunks into parent documents.
 
@@ -28,14 +34,39 @@ class HierarchicalAutoMergingAgent:
         self,
         store: "BaseVectorStore",
         config: "AutoMergeConfig",
+        enabled: bool = True,
     ) -> None:
-        self._store = store
+        """
+        Initialize the auto-merge agent.
+        
+        Args:
+            store: Vector store for retrieving parent documents
+            config: Auto-merge configuration
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(store=store, enabled=enabled)
         self._config = config
 
-    def run(
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "HierarchicalAutoMergingAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.POST_RETRIEVAL
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Auto-merges child chunks into parent documents when appropriate"
+
+    def _execute(
         self,
         candidates: List[Tuple[Any, float]],
         top_k: Optional[int] = None,
+        **kwargs: Any,
     ) -> List[Tuple[Any, float]]:
         """
         Apply hierarchical auto-merging.
@@ -68,6 +99,7 @@ class HierarchicalAutoMergingAgent:
                 passthrough.append((doc, score))
 
         merged: List[Tuple[Any, float]] = []
+        parents_merged = 0
 
         for parent_id, children in by_parent.items():
             if len(children) >= min_children:
@@ -75,6 +107,7 @@ class HierarchicalAutoMergingAgent:
                 if parent is not None and len(parent.content) <= max_parent_chars:
                     best_score = max(s for _, s in children)
                     merged.append((parent, best_score))
+                    parents_merged += 1
                 else:
                     merged.extend(children)
             else:
@@ -92,4 +125,26 @@ class HierarchicalAutoMergingAgent:
         result = list(best_by_id.values())
         result.sort(key=lambda x: x[1], reverse=True)
 
-        return result[:k]
+        final_results = result[:k]
+
+        self.logger.info(
+            "Auto-merge completed",
+            input_docs=len(candidates),
+            parents_merged=parents_merged,
+            output_docs=len(final_results),
+        )
+
+        return final_results
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[List[Tuple[Any, float]]]:
+        """
+        Return original candidates on error.
+        """
+        self.logger.warning(f"Auto-merge failed: {error}")
+        candidates = kwargs.get("candidates", [])
+        return candidates if candidates else []

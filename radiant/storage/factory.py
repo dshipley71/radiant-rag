@@ -8,22 +8,14 @@ based on configuration. Supports Redis (default), Chroma, and PgVector.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
-from radiant.config import AppConfig, ChromaConfig, PgVectorConfig, RedisConfig
+from radiant.config import AppConfig
 
 if TYPE_CHECKING:
     from radiant.storage.base import BaseVectorStore
 
 logger = logging.getLogger(__name__)
-
-
-# Type alias for all supported store types
-VectorStore = Union[
-    "RedisVectorStore",
-    "ChromaVectorStore", 
-    "PgVectorStore",
-]
 
 
 def create_vector_store(config: AppConfig) -> "BaseVectorStore":
@@ -150,5 +142,4 @@ __all__ = [
     "create_vector_store",
     "get_available_backends",
     "validate_backend_config",
-    "VectorStore",
 ]

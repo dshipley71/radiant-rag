@@ -9,7 +9,13 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
 
 if TYPE_CHECKING:
     from radiant.config import WebSearchConfig
@@ -18,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class WebSearchAgent:
+class WebSearchAgent(LLMAgent):
     """
     Real-time web search agent for augmenting indexed content.
     
@@ -30,6 +36,7 @@ class WebSearchAgent:
         self,
         llm: "LLMClient",
         config: "WebSearchConfig",
+        enabled: bool = True,
     ) -> None:
         """
         Initialize the web search agent.
@@ -37,10 +44,26 @@ class WebSearchAgent:
         Args:
             llm: LLM client for query analysis
             config: Web search configuration
+            enabled: Whether the agent is enabled
         """
-        self._llm = llm
+        super().__init__(llm=llm, enabled=enabled)
         self._config = config
         self._cache: Dict[str, List[Tuple[Any, float]]] = {}
+
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "WebSearchAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.RETRIEVAL
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Real-time web search agent for augmenting indexed content"
 
     def _should_search(self, query: str, plan: Dict[str, Any]) -> bool:
         """
@@ -76,14 +99,14 @@ If no good URLs come to mind, return an empty array: []"""
 
         user = f"Query: {query}\n\nReturn JSON array of URLs only."
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default=[],
             expected_type=list,
         )
 
-        if not response.success or not result:
+        if not result:
             return []
 
         valid_urls = []
@@ -121,7 +144,7 @@ If no good URLs come to mind, return an empty array: []"""
                     crawl_result = crawler.crawl_single(url, save_file=False)
                     
                     if not crawl_result.success or not crawl_result.content:
-                        logger.debug(f"Failed to fetch {url}: {crawl_result.error}")
+                        self.logger.debug(f"Failed to fetch {url}: {crawl_result.error}")
                         continue
                     
                     if crawl_result.is_html:
@@ -157,7 +180,7 @@ If no good URLs come to mind, return an empty array: []"""
                     results.append((doc, relevance))
                     
                 except Exception as e:
-                    logger.warning(f"Error fetching {url}: {e}")
+                    self.logger.warning(f"Error fetching {url}: {e}")
                     continue
                     
         finally:
@@ -181,45 +204,65 @@ If no good URLs come to mind, return an empty array: []"""
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
-    def run(
+    def _execute(
         self,
         query: str,
         plan: Dict[str, Any],
+        **kwargs: Any,
     ) -> List[Tuple[Any, float]]:
         """
         Execute web search for the query.
+        
+        Args:
+            query: User query
+            plan: Execution plan
+            
+        Returns:
+            List of (document, relevance) tuples
         """
         if not self._config.enabled:
             return []
         
         if not self._should_search(query, plan):
-            logger.debug(f"Web search not triggered for query: {query[:50]}...")
+            self.logger.debug(f"Web search not triggered for query: {query[:50]}...")
             return []
         
         cache_key = query.lower().strip()
         if self._config.cache_enabled and cache_key in self._cache:
-            logger.debug(f"Returning cached web search results for: {query[:50]}...")
+            self.logger.debug(f"Returning cached web search results for: {query[:50]}...")
             return self._cache[cache_key]
         
-        logger.info(f"Performing web search for: {query[:50]}...")
+        self.logger.info(f"Performing web search for: {query[:50]}...")
         
         urls = self._analyze_query_for_urls(query)
         
         if not urls:
-            logger.debug("No URLs suggested for query")
+            self.logger.debug("No URLs suggested for query")
             return []
         
-        logger.debug(f"Fetching {len(urls)} URLs: {urls}")
+        self.logger.debug(f"Fetching {len(urls)} URLs: {urls}")
         
         results = self._fetch_and_parse(urls)
         
         if self._config.cache_enabled:
             self._cache[cache_key] = results
         
-        logger.info(f"Web search returned {len(results)} results")
+        self.logger.info(f"Web search returned {len(results)} results")
         
         return results
 
     def clear_cache(self) -> None:
         """Clear the web search cache."""
         self._cache.clear()
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[List[Tuple[Any, float]]]:
+        """
+        Return empty list on error.
+        """
+        self.logger.warning(f"Web search failed: {error}")
+        return []

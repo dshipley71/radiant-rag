@@ -8,12 +8,19 @@ inference chains to arrive at the final answer.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    BaseAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient
-    from radiant.storage.base import BaseVectorStore, StoredDoc
+    from radiant.storage.base import BaseVectorStore
     from radiant.llm.local_models import LocalNLPModels
 
 logger = logging.getLogger(__name__)
@@ -68,7 +75,7 @@ class MultiHopResult:
         }
 
 
-class MultiHopReasoningAgent:
+class MultiHopReasoningAgent(BaseAgent):
     """
     Multi-hop reasoning agent for complex queries.
     
@@ -114,6 +121,7 @@ class MultiHopReasoningAgent:
         docs_per_hop: int = 5,
         min_confidence_to_continue: float = 0.3,
         enable_entity_extraction: bool = True,
+        enabled: bool = True,
     ) -> None:
         """
         Initialize the multi-hop reasoning agent.
@@ -126,14 +134,33 @@ class MultiHopReasoningAgent:
             docs_per_hop: Documents to retrieve per hop
             min_confidence_to_continue: Minimum confidence to continue chain
             enable_entity_extraction: Extract entities for follow-up queries
+            enabled: Whether the agent is enabled
         """
-        self._llm = llm
-        self._store = store
-        self._local = local_models
+        super().__init__(
+            llm=llm,
+            store=store,
+            local_models=local_models,
+            enabled=enabled,
+        )
         self._max_hops = max_hops
         self._docs_per_hop = docs_per_hop
         self._min_confidence = min_confidence_to_continue
         self._enable_entities = enable_entity_extraction
+
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "MultiHopReasoningAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.EVALUATION
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Handles complex queries requiring multiple retrieval and reasoning steps"
     
     def requires_multihop(self, query: str) -> Tuple[bool, str]:
         """
@@ -145,8 +172,6 @@ class MultiHopReasoningAgent:
         Returns:
             Tuple of (requires_multihop, reason)
         """
-        import re
-        
         query_lower = query.lower()
         
         # Check pattern indicators
@@ -186,12 +211,13 @@ Return JSON:
             bool(result.get("requires_multihop", False)),
             str(result.get("reason", "LLM analysis"))
         )
-    
-    def run(
+
+    def _execute(
         self,
         query: str,
         initial_context: Optional[List[Any]] = None,
         force_multihop: bool = False,
+        **kwargs: Any,
     ) -> MultiHopResult:
         """
         Execute multi-hop reasoning for a query.
@@ -208,7 +234,7 @@ Return JSON:
         needs_multihop, reason = self.requires_multihop(query)
         
         if not needs_multihop and not force_multihop:
-            logger.debug(f"Query does not require multi-hop: {reason}")
+            self.logger.debug(f"Query does not require multi-hop: {reason}")
             return MultiHopResult(
                 original_query=query,
                 requires_multihop=False,
@@ -219,104 +245,88 @@ Return JSON:
                 success=True,
             )
         
-        logger.info(f"Starting multi-hop reasoning for: {query[:50]}...")
+        self.logger.info(f"Starting multi-hop reasoning for: {query[:50]}...")
         
-        try:
-            # Decompose into sub-questions
-            sub_questions = self._decompose_query(query)
-            
-            if not sub_questions:
-                logger.warning("Failed to decompose query, using single-hop")
-                return MultiHopResult(
-                    original_query=query,
-                    requires_multihop=False,
-                    reasoning_chain=[],
-                    final_context=initial_context or [],
-                    intermediate_answers=[],
-                    total_hops=0,
-                    success=True,
-                )
-            
-            # Execute reasoning chain
-            reasoning_chain: List[ReasoningStep] = []
-            all_context: List[Any] = list(initial_context) if initial_context else []
-            intermediate_answers: List[str] = []
-            accumulated_knowledge = ""
-            
-            for i, sub_q in enumerate(sub_questions[:self._max_hops]):
-                # Augment sub-question with accumulated knowledge
-                if accumulated_knowledge:
-                    augmented_query = f"{sub_q} (Given: {accumulated_knowledge})"
-                else:
-                    augmented_query = sub_q
-                
-                # Retrieve for this hop
-                step_docs = self._retrieve_for_hop(augmented_query)
-                
-                # Extract answer from this hop
-                answer, confidence, entities = self._extract_hop_answer(
-                    sub_q, step_docs, accumulated_knowledge
-                )
-                
-                # Create reasoning step
-                step = ReasoningStep(
-                    step_number=i + 1,
-                    sub_question=sub_q,
-                    retrieved_docs=step_docs,
-                    extracted_answer=answer,
-                    confidence=confidence,
-                    entities_found=entities,
-                    metadata={"augmented_query": augmented_query},
-                )
-                reasoning_chain.append(step)
-                
-                # Accumulate context and knowledge
-                all_context.extend(step_docs)
-                intermediate_answers.append(answer)
-                
-                if answer and answer.lower() not in ("unknown", "not found", ""):
-                    accumulated_knowledge += f" {answer}"
-                
-                # Check if we should continue
-                if confidence < self._min_confidence:
-                    logger.info(f"Stopping at hop {i+1} due to low confidence: {confidence:.2f}")
-                    break
-                
-                # Check if we have enough information
-                if self._has_sufficient_info(query, accumulated_knowledge):
-                    logger.info(f"Sufficient information gathered at hop {i+1}")
-                    break
-            
-            # Deduplicate context
-            final_context = self._deduplicate_context(all_context)
-            
-            logger.info(
-                f"Multi-hop complete: {len(reasoning_chain)} hops, "
-                f"{len(final_context)} unique docs"
-            )
-            
+        # Decompose into sub-questions
+        sub_questions = self._decompose_query(query)
+        
+        if not sub_questions:
+            self.logger.warning("Failed to decompose query, using single-hop")
             return MultiHopResult(
                 original_query=query,
-                requires_multihop=True,
-                reasoning_chain=reasoning_chain,
-                final_context=final_context,
-                intermediate_answers=intermediate_answers,
-                total_hops=len(reasoning_chain),
-                success=True,
-            )
-            
-        except Exception as e:
-            logger.error(f"Multi-hop reasoning failed: {e}")
-            return MultiHopResult(
-                original_query=query,
-                requires_multihop=True,
+                requires_multihop=False,
                 reasoning_chain=[],
                 final_context=initial_context or [],
                 intermediate_answers=[],
                 total_hops=0,
-                success=False,
-                error=str(e),
+                success=True,
             )
+        
+        # Execute reasoning chain
+        reasoning_chain: List[ReasoningStep] = []
+        all_context: List[Any] = list(initial_context or [])
+        intermediate_answers: List[str] = []
+        accumulated_knowledge = ""
+        
+        for i, sub_question in enumerate(sub_questions):
+            self.logger.debug(f"Processing hop {i+1}: {sub_question[:50]}...")
+            
+            # Retrieve for this hop
+            step_docs = self._retrieve_for_hop(sub_question)
+            
+            # Extract answer from retrieved docs
+            answer, confidence, entities = self._extract_hop_answer(
+                sub_question,
+                step_docs,
+                accumulated_knowledge,
+            )
+            
+            # Create reasoning step
+            step = ReasoningStep(
+                step_number=i + 1,
+                sub_question=sub_question,
+                retrieved_docs=step_docs,
+                extracted_answer=answer,
+                confidence=confidence,
+                entities_found=entities,
+                metadata={"accumulated_knowledge_length": len(accumulated_knowledge)},
+            )
+            reasoning_chain.append(step)
+            
+            # Accumulate context and knowledge
+            all_context.extend(step_docs)
+            intermediate_answers.append(answer)
+            
+            if answer and answer.lower() not in ("unknown", "not found", ""):
+                accumulated_knowledge += f" {answer}"
+            
+            # Check if we should continue
+            if confidence < self._min_confidence:
+                self.logger.info(f"Stopping at hop {i+1} due to low confidence: {confidence:.2f}")
+                break
+            
+            # Check if we have enough information
+            if self._has_sufficient_info(query, accumulated_knowledge):
+                self.logger.info(f"Sufficient information gathered at hop {i+1}")
+                break
+        
+        # Deduplicate context
+        final_context = self._deduplicate_context(all_context)
+        
+        self.logger.info(
+            f"Multi-hop complete: {len(reasoning_chain)} hops, "
+            f"{len(final_context)} unique docs"
+        )
+        
+        return MultiHopResult(
+            original_query=query,
+            requires_multihop=True,
+            reasoning_chain=reasoning_chain,
+            final_context=final_context,
+            intermediate_answers=intermediate_answers,
+            total_hops=len(reasoning_chain),
+            success=True,
+        )
     
     def _decompose_query(self, query: str) -> List[str]:
         """Decompose a complex query into sub-questions."""
@@ -360,7 +370,7 @@ Maximum 3 sub-questions."""
         
         try:
             # Embed query
-            query_vec = self._local.embed_single(query)
+            query_vec = self._local_models.embed_single(query)
             
             # Retrieve - search all document levels for multihop reasoning
             # since we may need both children and parents for complex queries
@@ -373,7 +383,7 @@ Maximum 3 sub-questions."""
             return [doc for doc, score in results]
             
         except Exception as e:
-            logger.warning(f"Retrieval failed for hop: {e}")
+            self.logger.warning(f"Retrieval failed for hop: {e}")
             return []
     
     def _extract_hop_answer(
@@ -511,3 +521,28 @@ Return JSON only."""
             )
         
         return "\n".join(lines)
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[MultiHopResult]:
+        """
+        Provide fallback result on error.
+        """
+        query = kwargs.get("query", "")
+        initial_context = kwargs.get("initial_context", [])
+        
+        self.logger.warning(f"Multi-hop reasoning failed: {error}")
+        
+        return MultiHopResult(
+            original_query=query,
+            requires_multihop=True,
+            reasoning_chain=[],
+            final_context=initial_context,
+            intermediate_answers=[],
+            total_hops=0,
+            success=False,
+            error=str(error),
+        )

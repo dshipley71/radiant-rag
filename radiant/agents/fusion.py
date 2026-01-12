@@ -9,27 +9,61 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    BaseAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.config import RetrievalConfig
 
 logger = logging.getLogger(__name__)
 
 
-class RRFAgent:
+class RRFAgent(BaseAgent):
     """
     Reciprocal Rank Fusion agent for combining retrieval results.
 
     Merges results from multiple retrieval methods using the RRF formula.
     """
 
-    def __init__(self, config: "RetrievalConfig") -> None:
+    def __init__(
+        self,
+        config: "RetrievalConfig",
+        enabled: bool = True,
+    ) -> None:
+        """
+        Initialize the RRF agent.
+        
+        Args:
+            config: Retrieval configuration
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(enabled=enabled)
         self._config = config
 
-    def run(
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "RRFAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.POST_RETRIEVAL
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Combines retrieval results using Reciprocal Rank Fusion"
+
+    def _execute(
         self,
         runs: List[List[Tuple[Any, float]]],
         top_k: Optional[int] = None,
         rrf_k: Optional[int] = None,
+        **kwargs: Any,
     ) -> List[Tuple[Any, float]]:
         """
         Fuse multiple retrieval runs using RRF.
@@ -56,4 +90,25 @@ class RRFAgent:
         fused = [(doc_map[doc_id], score) for doc_id, score in scores.items()]
         fused.sort(key=lambda x: x[1], reverse=True)
 
-        return fused[:k]
+        results = fused[:k]
+
+        self.logger.info(
+            "RRF fusion completed",
+            num_runs=len(runs),
+            total_docs=len(doc_map),
+            fused_results=len(results),
+        )
+
+        return results
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[List[Tuple[Any, float]]]:
+        """
+        Return empty list on error.
+        """
+        self.logger.warning(f"RRF fusion failed: {error}")
+        return []

@@ -25,13 +25,9 @@ from radiant.ingestion.processor import (
     IngestedChunk,
     TranslatingDocumentProcessor,
 )
-from radiant.ingestion.github_crawler import (
-    GitHubCrawler,
-    GitHubCrawlResult,
-    crawl_github_repo,
-)
+from radiant.ingestion.github_crawler import GitHubCrawler
 from radiant.orchestrator import PipelineResult, RAGOrchestrator, SimplifiedOrchestrator
-from radiant.ingestion.image_captioner import ImageCaptioner, VLMConfig, create_captioner
+from radiant.ingestion.image_captioner import VLMConfig, create_captioner
 from radiant.agents.language_detection import LanguageDetectionAgent
 from radiant.agents.translation import TranslationAgent
 from radiant.ui.display import (
@@ -44,7 +40,6 @@ from radiant.ui.display import (
 )
 from radiant.ui.reports.report import (
     QueryReport,
-    display_report,
     display_search_results,
     print_report,
     save_report,
@@ -560,7 +555,7 @@ class RadiantRAG:
         Returns:
             Ingestion statistics
         """
-        from radiant.ingestion.web_crawler import WebCrawler, CrawlResult
+        from radiant.ingestion.web_crawler import WebCrawler
         
         # Separate GitHub URLs from regular URLs
         github_urls = [u for u in urls if GitHubCrawler.is_github_url(u)]
@@ -890,15 +885,6 @@ class RadiantRAG:
             List of IngestedChunk objects
         """
         import os
-        import re
-        
-        chunks = []
-        base_meta = {
-            "source_path": source_path,
-            "source_url": source_url,
-            "source_type": "github",
-            "repo_name": repo_name,
-        }
         
         # Detect file type
         ext = os.path.splitext(source_path)[1].lower()
@@ -940,7 +926,7 @@ class RadiantRAG:
         Returns:
             List of IngestedChunk objects
         """
-        from radiant.ingestion.code_chunker import CodeChunker, CodeLanguage
+        from radiant.ingestion.code_chunker import CodeChunker
         
         chunks = []
         base_meta = {
@@ -1682,7 +1668,7 @@ def main() -> int:
                 answer = app.simple_query(args.query)
                 console.print(answer)
             else:
-                result = app.query(
+                _result = app.query(
                     args.query,
                     conversation_id=args.conversation,
                     retrieval_mode=args.mode,
@@ -1690,7 +1676,7 @@ def main() -> int:
                     compact=args.compact,
                 )
                 if args.save:
-                    console.print(f"[green]✓[/green] Report saved to: {args.save}")
+                    console.print("[green]✓[/green] Report saved to: {args.save}".format(args=args))
 
         elif args.command == "search":
             app.search(

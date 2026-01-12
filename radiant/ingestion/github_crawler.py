@@ -10,16 +10,13 @@ Handles GitHub repositories specially by:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import re
 import tempfile
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse
+from typing import Any, Dict, List, Optional, Set
 
 import requests
 
@@ -172,10 +169,11 @@ class GitHubCrawler:
         Returns:
             GitHubRepo object or None if not a valid GitHub URL
         """
-        # Strip query string and fragment for cleaner parsing
-        from urllib.parse import urlparse, urlunparse
+        # Parse the URL (local import to avoid unused top-level import)
+        from urllib.parse import urlparse
         parsed = urlparse(url)
-        clean_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+        # Note: parsed is used for future extension (clean URL handling)
+        _ = parsed  # Acknowledge parsed for potential future use
         
         match = cls.GITHUB_URL_PATTERN.match(url)
         if not match:

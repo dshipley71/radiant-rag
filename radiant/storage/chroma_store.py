@@ -15,8 +15,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-
 from radiant.config import ChromaConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
 

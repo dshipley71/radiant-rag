@@ -7,7 +7,13 @@ Transforms queries to improve retrieval effectiveness.
 from __future__ import annotations
 
 import logging
-from typing import Tuple, TYPE_CHECKING
+from typing import Any, Optional, Tuple, TYPE_CHECKING
+
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
 
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient
@@ -15,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class QueryRewriteAgent:
+class QueryRewriteAgent(LLMAgent):
     """
     Rewrites queries to improve retrieval effectiveness.
 
@@ -23,10 +29,40 @@ class QueryRewriteAgent:
     or better match document terminology.
     """
 
-    def __init__(self, llm: "LLMClient") -> None:
-        self._llm = llm
+    def __init__(
+        self,
+        llm: "LLMClient",
+        enabled: bool = True,
+    ) -> None:
+        """
+        Initialize the rewrite agent.
+        
+        Args:
+            llm: LLM client for reasoning
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(llm=llm, enabled=enabled)
 
-    def run(self, query: str) -> Tuple[str, str]:
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "QueryRewriteAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.QUERY_PROCESSING
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Rewrites queries to improve retrieval effectiveness"
+
+    def _execute(
+        self,
+        query: str,
+        **kwargs: Any,
+    ) -> Tuple[str, str]:
         """
         Rewrite query for better retrieval.
 
@@ -49,17 +85,37 @@ Return a JSON object: {"before": "original query", "after": "rewritten query"}""
 
         user = f"Query: {query}\n\nReturn JSON only."
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default={"before": query, "after": query},
             expected_type=dict,
         )
 
-        if not response.success or not result:
+        if not result:
             return query, query
 
         before = str(result.get("before", query)).strip() or query
         after = str(result.get("after", query)).strip() or query
 
+        if before != after:
+            self.logger.info(
+                "Query rewritten",
+                original=before[:50],
+                rewritten=after[:50],
+            )
+
         return before, after
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[Tuple[str, str]]:
+        """
+        Return original query on error.
+        """
+        query = kwargs.get("query", "")
+        self.logger.warning(f"Rewrite failed, using original: {error}")
+        return (query, query) if query else ("", "")

@@ -12,12 +12,9 @@ Requirements:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
 
 from radiant.config import PgVectorConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc

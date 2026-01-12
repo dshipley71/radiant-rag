@@ -11,6 +11,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient
     from radiant.agents.strategy_memory import RetrievalStrategyMemory
@@ -18,7 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class PlanningAgent:
+class PlanningAgent(LLMAgent):
     """
     Planning agent that decides which pipeline features to use.
 
@@ -38,17 +44,45 @@ class PlanningAgent:
         tools_enabled: bool = True,
         available_tools: Optional[List[Dict[str, Any]]] = None,
         strategy_memory: Optional["RetrievalStrategyMemory"] = None,
+        enabled: bool = True,
     ) -> None:
-        self._llm = llm
+        """
+        Initialize the planning agent.
+        
+        Args:
+            llm: LLM client for reasoning
+            web_search_enabled: Whether web search is available
+            tools_enabled: Whether tools are available
+            available_tools: List of available tool definitions
+            strategy_memory: Optional strategy memory for adaptive behavior
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(llm=llm, enabled=enabled)
         self._web_search_enabled = web_search_enabled
         self._tools_enabled = tools_enabled
         self._available_tools = available_tools or []
         self._strategy_memory = strategy_memory
 
-    def run(
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "PlanningAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.PLANNING
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Analyzes queries and produces execution plans for the RAG pipeline"
+
+    def _execute(
         self,
         query: str,
         context: Optional[str] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Generate execution plan for query.
@@ -66,7 +100,10 @@ class PlanningAgent:
         
         if self._strategy_memory:
             recommended_mode, mode_confidence = self._strategy_memory.recommend_strategy(query)
-            logger.debug(f"Strategy memory recommends: {recommended_mode} (confidence={mode_confidence:.2f})")
+            self.logger.debug(
+                f"Strategy memory recommends: {recommended_mode}",
+                confidence=f"{mode_confidence:.2f}",
+            )
 
         # Build dynamic parts of prompt
         web_search_instruction = ""
@@ -126,7 +163,7 @@ Return ONLY a JSON object with the plan."""
             user += f"\n\nContext: {context}"
         user += "\n\nReturn JSON plan only."
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default={},
@@ -147,8 +184,8 @@ Return ONLY a JSON object with the plan."""
             "tools_to_use": [],
         }
 
-        if not response.success or not result:
-            logger.warning("Planning agent failed, using default plan")
+        if not result:
+            self.logger.warning("Planning failed, using default plan")
             return default_plan
 
         # Merge with defaults
@@ -178,7 +215,11 @@ Return ONLY a JSON object with the plan."""
         if not self._tools_enabled:
             result["tools_to_use"] = []
 
-        logger.info(f"Plan: retrieval_mode={result['retrieval_mode']}, tools={result.get('tools_to_use', [])}")
+        self.logger.info(
+            "Plan generated",
+            retrieval_mode=result["retrieval_mode"],
+            tools=result.get("tools_to_use", []),
+        )
         
         return result
     
@@ -221,14 +262,14 @@ Return a modified JSON plan."""
 
         user = f"Query: {query}\n\nReturn modified JSON plan only."
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default=previous_plan,
             expected_type=dict,
         )
 
-        if not response.success:
+        if not result or result == previous_plan:
             # Simple fallback: toggle retrieval mode
             modified = dict(previous_plan)
             current_mode = modified.get("retrieval_mode", "hybrid")
@@ -247,3 +288,26 @@ Return a modified JSON plan."""
                 result[key] = previous_plan[key]
 
         return result
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Provide fallback plan on error.
+        """
+        self.logger.warning(f"Planning failed, using fallback: {error}")
+        return {
+            "use_decomposition": True,
+            "use_rewrite": True,
+            "use_expansion": True,
+            "use_rrf": True,
+            "use_automerge": True,
+            "use_rerank": True,
+            "use_critic": True,
+            "use_web_search": False,
+            "retrieval_mode": "hybrid",
+            "tools_to_use": [],
+        }

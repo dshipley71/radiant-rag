@@ -9,6 +9,12 @@ from __future__ import annotations
 import logging
 from typing import Any, List, Optional, Tuple, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    RetrievalAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.config import RetrievalConfig
     from radiant.llm.client import LocalNLPModels
@@ -17,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class DenseRetrievalAgent:
+class DenseRetrievalAgent(RetrievalAgent):
     """
     Dense embedding-based retrieval using vector similarity search.
     
@@ -30,10 +36,34 @@ class DenseRetrievalAgent:
         store: "BaseVectorStore",
         local: "LocalNLPModels",
         config: "RetrievalConfig",
+        enabled: bool = True,
     ) -> None:
-        self._store = store
-        self._local = local
+        """
+        Initialize the dense retrieval agent.
+        
+        Args:
+            store: Vector store for retrieval
+            local: Local NLP models for embeddings
+            config: Retrieval configuration
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(store=store, local_models=local, enabled=enabled)
         self._config = config
+
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "DenseRetrievalAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.RETRIEVAL
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Dense embedding-based retrieval using vector similarity search"
 
     def _get_doc_level_filter(self, search_scope: Optional[str] = None) -> Optional[str]:
         """
@@ -57,11 +87,12 @@ class DenseRetrievalAgent:
             # Default to leaves for backward compatibility
             return "child"
 
-    def run(
+    def _execute(
         self,
         query: str,
         top_k: Optional[int] = None,
         search_scope: Optional[str] = None,
+        **kwargs: Any,
     ) -> List[Tuple[Any, float]]:
         """
         Retrieve documents by embedding similarity.
@@ -78,12 +109,33 @@ class DenseRetrievalAgent:
         doc_level_filter = self._get_doc_level_filter(search_scope)
 
         # Generate query embedding
-        query_vec = self._local.embed_single(query)
+        query_vec = self._embed(query)
 
         # Search vector store
-        return self._store.retrieve_by_embedding(
+        results = self._retrieve(
             query_embedding=query_vec,
             top_k=k,
             min_similarity=self._config.min_similarity,
             doc_level_filter=doc_level_filter,
         )
+
+        self.logger.info(
+            "Dense retrieval completed",
+            query_length=len(query),
+            num_results=len(results),
+            top_k=k,
+        )
+
+        return results
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[List[Tuple[Any, float]]]:
+        """
+        Return empty list on error.
+        """
+        self.logger.warning(f"Dense retrieval failed: {error}")
+        return []

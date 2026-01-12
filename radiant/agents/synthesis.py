@@ -9,6 +9,12 @@ from __future__ import annotations
 import logging
 from typing import Any, List, Optional, TYPE_CHECKING
 
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
+
 if TYPE_CHECKING:
     from radiant.config import SynthesisConfig
     from radiant.llm.client import LLMClient
@@ -17,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AnswerSynthesisAgent:
+class AnswerSynthesisAgent(LLMAgent):
     """
     Synthesizes answers from retrieved context.
 
@@ -29,16 +35,42 @@ class AnswerSynthesisAgent:
         llm: "LLMClient",
         config: "SynthesisConfig",
         conversation_manager: Optional["ConversationManager"] = None,
+        enabled: bool = True,
     ) -> None:
-        self._llm = llm
+        """
+        Initialize the synthesis agent.
+        
+        Args:
+            llm: LLM client for generation
+            config: Synthesis configuration
+            conversation_manager: Optional conversation manager
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(llm=llm, enabled=enabled)
         self._config = config
         self._conversation = conversation_manager
 
-    def run(
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "AnswerSynthesisAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.GENERATION
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Synthesizes coherent answers from retrieved context"
+
+    def _execute(
         self,
         query: str,
         docs: List[Any],
         conversation_history: str = "",
+        **kwargs: Any,
     ) -> str:
         """
         Synthesize answer from context.
@@ -87,12 +119,24 @@ Guidelines:
         user = "\n".join(user_parts)
 
         # Generate answer
-        response = self._llm.chat(
-            self._llm.create_messages(system, user),
-            retry_on_error=True,
+        answer = self._chat(system, user)
+        
+        self.logger.info(
+            "Answer synthesized",
+            docs_used=len(docs[:max_docs]),
+            answer_length=len(answer),
         )
+        
+        return answer
 
-        if not response.success:
-            return f"I apologize, but I encountered an error generating the answer: {response.error}"
-
-        return response.content.strip()
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[str]:
+        """
+        Provide fallback response on error.
+        """
+        self.logger.warning(f"Synthesis failed, using fallback: {error}")
+        return f"I apologize, but I encountered an error generating the answer: {error}"

@@ -7,7 +7,13 @@ Breaks complex queries into simpler sub-queries for better retrieval.
 from __future__ import annotations
 
 import logging
-from typing import List, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
+
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentMetrics,
+    LLMAgent,
+)
 
 if TYPE_CHECKING:
     from radiant.config import QueryConfig
@@ -16,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class QueryDecompositionAgent:
+class QueryDecompositionAgent(LLMAgent):
     """
     Decomposes complex queries into simpler sub-queries.
 
@@ -24,11 +30,43 @@ class QueryDecompositionAgent:
     information from multiple sources.
     """
 
-    def __init__(self, llm: "LLMClient", config: "QueryConfig") -> None:
-        self._llm = llm
+    def __init__(
+        self,
+        llm: "LLMClient",
+        config: "QueryConfig",
+        enabled: bool = True,
+    ) -> None:
+        """
+        Initialize the decomposition agent.
+        
+        Args:
+            llm: LLM client for reasoning
+            config: Query configuration
+            enabled: Whether the agent is enabled
+        """
+        super().__init__(llm=llm, enabled=enabled)
         self._config = config
 
-    def run(self, query: str) -> List[str]:
+    @property
+    def name(self) -> str:
+        """Return the agent's unique name."""
+        return "QueryDecompositionAgent"
+
+    @property
+    def category(self) -> AgentCategory:
+        """Return the agent's category."""
+        return AgentCategory.QUERY_PROCESSING
+
+    @property
+    def description(self) -> str:
+        """Return a human-readable description."""
+        return "Decomposes complex queries into simpler sub-queries"
+
+    def _execute(
+        self,
+        query: str,
+        **kwargs: Any,
+    ) -> List[str]:
         """
         Decompose query into sub-queries.
 
@@ -51,20 +89,36 @@ Examples:
 
         user = f"Query: {query}\n\nReturn JSON array only."
 
-        result, response = self._llm.chat_json(
+        result = self._chat_json(
             system=system,
             user=user,
             default=[query],
             expected_type=list,
         )
 
-        if not response.success:
-            return [query]
-
         # Validate and clean results
         if isinstance(result, list):
             queries = [str(q).strip() for q in result if isinstance(q, str) and q.strip()]
             if queries:
-                return queries[: self._config.max_decomposed_queries]
+                final_queries = queries[: self._config.max_decomposed_queries]
+                self.logger.info(
+                    "Query decomposed",
+                    original=query[:50],
+                    num_sub_queries=len(final_queries),
+                )
+                return final_queries
 
         return [query]
+
+    def _on_error(
+        self,
+        error: Exception,
+        metrics: AgentMetrics,
+        **kwargs: Any,
+    ) -> Optional[List[str]]:
+        """
+        Return original query on error.
+        """
+        query = kwargs.get("query", "")
+        self.logger.warning(f"Decomposition failed, using original: {error}")
+        return [query] if query else []

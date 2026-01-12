@@ -19,6 +19,18 @@ Provides specialized agents for each stage of the RAG pipeline:
     - Translation (canonical language indexing)
 """
 
+# Base agent classes
+from radiant.agents.base_agent import (
+    AgentCategory,
+    AgentStatus,
+    AgentMetrics,
+    AgentResult,
+    StructuredLogger,
+    BaseAgent,
+    LLMAgent,
+    RetrievalAgent,
+)
+
 # Base context
 from radiant.agents.base import AgentContext, new_agent_context
 
@@ -125,7 +137,16 @@ from radiant.agents.translation import (
 )
 
 __all__ = [
-    # Base
+    # Base agent classes
+    "AgentCategory",
+    "AgentStatus",
+    "AgentMetrics",
+    "AgentResult",
+    "StructuredLogger",
+    "BaseAgent",
+    "LLMAgent",
+    "RetrievalAgent",
+    # Base context
     "AgentContext",
     "new_agent_context",
     # Planning
