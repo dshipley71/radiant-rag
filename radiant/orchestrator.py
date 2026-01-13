@@ -894,7 +894,7 @@ class RAGOrchestrator:
                 try:
                     result = self._rrf_agent.run(
                         correlation_id=ctx.run_id,
-                        retrieval_lists=retrieval_lists,
+                        runs=retrieval_lists,
                     )
                     ctx.fused = _extract_agent_data(
                         result,
@@ -932,7 +932,7 @@ class RAGOrchestrator:
                 try:
                     result = self._automerge_agent.run(
                         correlation_id=ctx.run_id,
-                        docs=current_docs,
+                        candidates=current_docs,
                     )
                     ctx.auto_merged = _extract_agent_data(
                         result,
@@ -1134,7 +1134,7 @@ class RAGOrchestrator:
             result = self._synthesis_agent.run(
                 correlation_id=ctx.run_id,
                 query=ctx.original_query,
-                context=context_docs,
+                docs=context_docs,
                 conversation_history=ctx.conversation_history + tool_context,
             )
             ctx.final_answer = _extract_agent_data(
@@ -1165,7 +1165,7 @@ class RAGOrchestrator:
                     correlation_id=ctx.run_id,
                     query=ctx.original_query,
                     answer=ctx.final_answer,
-                    context=context_docs,
+                    context_docs=context_docs,
                     is_retry=is_retry,
                     retry_count=retry_count,
                 )
