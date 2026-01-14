@@ -1270,7 +1270,8 @@ class RadiantRAG:
                 self._llm_clients.local, 
                 self._config.retrieval
             )
-            dense_results = dense_agent.run(query, top_k=top_k)
+            dense_result = dense_agent.run(query, top_k=top_k)
+            dense_results = dense_result.data if hasattr(dense_result, 'data') else dense_result
             if mode == "dense":
                 results = dense_results
         
@@ -1280,7 +1281,8 @@ class RadiantRAG:
                 self._bm25_index, 
                 self._config.retrieval
             )
-            bm25_results = bm25_agent.run(query, top_k=top_k)
+            bm25_result = bm25_agent.run(query, top_k=top_k)
+            bm25_results = bm25_result.data if hasattr(bm25_result, 'data') else bm25_result
             if mode == "bm25":
                 results = bm25_results
         
@@ -1288,7 +1290,8 @@ class RadiantRAG:
         if mode == "hybrid":
             if dense_results and bm25_results:
                 rrf_agent = RRFAgent(self._config.retrieval)
-                results = rrf_agent.run([dense_results, bm25_results])[:top_k]
+                rrf_result = rrf_agent.run([dense_results, bm25_results])
+                results = (rrf_result.data if hasattr(rrf_result, 'data') else rrf_result)[:top_k]
             else:
                 results = dense_results if dense_results else bm25_results
         
