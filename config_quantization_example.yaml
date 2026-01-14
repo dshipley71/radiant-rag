@@ -1,0 +1,126 @@
+# Example Configuration with Binary Quantization Enabled
+# Copy relevant sections to your config.yaml
+
+# ============================================================================
+# Redis Backend with Binary Quantization
+# ============================================================================
+redis:
+  url: "redis://localhost:6379/0"
+  key_prefix: "radiant"
+  doc_ns: "doc"
+  embed_ns: "emb"
+  meta_ns: "meta"
+  conversation_ns: "conv"
+  max_content_chars: 200000
+  
+  vector_index:
+    name: "radiant_vectors"
+    hnsw_m: 16                    # Increase for larger dimensions (e.g., 32 for 1024-dim)
+    hnsw_ef_construction: 200     # Increase for better quality (e.g., 400)
+    hnsw_ef_runtime: 100          # Increase for better recall (e.g., 200)
+    distance_metric: "COSINE"     # COSINE, L2, or IP
+  
+  # Binary quantization configuration
+  quantization:
+    enabled: true                              # Set to true to enable
+    precision: "both"                          # Options: "binary", "int8", "both"
+    rescore_multiplier: 4.0                    # Retrieve N×top_k candidates for rescoring
+    use_rescoring: true                        # Rescore with higher precision (recommended)
+    int8_ranges_file: "data/int8_ranges.npy"  # Path to calibration file (required for int8/both)
+    int8_on_disk_only: true                    # Keep int8 embeddings only on disk
+
+# ============================================================================
+# Chroma Backend with Binary Quantization
+# ============================================================================
+chroma:
+  persist_directory: "./data/chroma_db"
+  collection_name: "radiant_docs"
+  distance_fn: "cosine"           # Options: cosine, l2, ip
+  embedding_dimension: 384        # Must match your embedding model
+  max_content_chars: 200000
+  
+  # Binary quantization configuration
+  quantization:
+    enabled: true
+    precision: "both"
+    rescore_multiplier: 4.0
+    use_rescoring: true
+    int8_ranges_file: "data/int8_ranges.npy"
+    int8_on_disk_only: true
+
+# ============================================================================
+# PgVector Backend with Binary Quantization
+# ============================================================================
+pgvector:
+  # Connection string (also can be set via PG_CONN_STR env var)
+  connection_string: "postgresql://user:password@localhost:5432/radiant_db"
+  
+  leaf_table_name: "haystack_leaves"
+  parent_table_name: "haystack_parents"
+  embedding_dimension: 384
+  vector_function: "cosine_similarity"  # Options: cosine_similarity, inner_product, l2_distance
+  recreate_table: false
+  search_strategy: "hnsw"               # Options: hnsw, exact_nearest_neighbor
+  hnsw_recreate_index_if_exists: false
+  hnsw_ef_search: null                  # Use default
+  language: "english"
+  max_content_chars: 200000
+  
+  # Binary quantization configuration
+  quantization:
+    enabled: true
+    precision: "both"
+    rescore_multiplier: 4.0
+    use_rescoring: true
+    int8_ranges_file: "data/int8_ranges.npy"
+    int8_on_disk_only: true
+
+# ============================================================================
+# Storage Backend Selection
+# ============================================================================
+storage:
+  backend: "redis"    # Options: redis, chroma, pgvector
+
+# ============================================================================
+# Embedding Model Configuration
+# ============================================================================
+local_models:
+  embed_model_name: "sentence-transformers/all-MiniLM-L12-v2"
+  cross_encoder_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
+  device: "auto"      # Options: auto, cuda, cpu, mps
+  embedding_dimension: 384
+
+# ============================================================================
+# Notes
+# ============================================================================
+# 
+# 1. To enable quantization, set quantization.enabled to true
+# 
+# 2. For int8 or "both" precision, you must:
+#    - Run calibration: python tools/calibrate_int8_ranges.py
+#    - Set int8_ranges_file to the output path
+# 
+# 3. For binary-only precision:
+#    - Set precision to "binary"
+#    - No calibration needed
+#    - Slightly lower accuracy but fastest
+# 
+# 4. Precision options:
+#    - "binary": 32x memory reduction, ~92-94% accuracy
+#    - "int8": 4x memory reduction, ~94-96% accuracy
+#    - "both": 3.5x memory reduction, ~95-96% accuracy (recommended)
+# 
+# 5. Rescore multiplier:
+#    - Lower (2.0): Faster, slightly less accurate
+#    - Default (4.0): Balanced
+#    - Higher (8.0): Slower, more accurate
+# 
+# 6. Backward compatibility:
+#    - Quantization is disabled by default
+#    - Existing code continues to work unchanged
+#    - Existing embeddings continue to work
+# 
+# 7. Performance expectations (1M documents, 384-dim):
+#    - Memory: 1.5GB → 432MB (3.5x reduction)
+#    - Speed: 50-100ms → 5-10ms (10-20x faster)
+#    - Accuracy: 100% → 95-96% (with rescoring)

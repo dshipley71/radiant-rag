@@ -190,6 +190,29 @@ class VectorIndexConfig:
 
 
 @dataclass(frozen=True)
+class QuantizationConfig:
+    """Binary quantization configuration for embeddings."""
+    # Whether quantization is enabled
+    enabled: bool = False
+    
+    # Precision for corpus embeddings: "binary", "int8", or "both"
+    precision: str = "both"
+    
+    # Rescoring multiplier: retrieve N×top_k candidates for rescoring
+    rescore_multiplier: float = 4.0
+    
+    # Whether to use rescoring step (improves accuracy)
+    use_rescoring: bool = True
+    
+    # Path to int8 calibration ranges file (.npy format)
+    # Required for int8 quantization precision
+    int8_ranges_file: Optional[str] = None
+    
+    # Whether to keep int8 embeddings only on disk (saves memory)
+    int8_on_disk_only: bool = True
+
+
+@dataclass(frozen=True)
 class ChromaConfig:
     """Chroma vector database configuration."""
     # Persistence directory for Chroma DB
@@ -206,6 +229,9 @@ class ChromaConfig:
     
     # Maximum content characters (for truncation)
     max_content_chars: int = 200_000
+    
+    # Binary quantization configuration
+    quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
 
 
 @dataclass(frozen=True)
@@ -248,6 +274,9 @@ class PgVectorConfig:
     
     # Maximum content characters (for truncation)
     max_content_chars: int = 200_000
+    
+    # Binary quantization configuration
+    quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
 
 
 @dataclass(frozen=True)
@@ -268,6 +297,7 @@ class RedisConfig:
     conversation_ns: str = "conv"
     max_content_chars: int = 200_000
     vector_index: VectorIndexConfig = field(default_factory=VectorIndexConfig)
+    quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
 
 
 @dataclass(frozen=True)

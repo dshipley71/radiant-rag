@@ -207,6 +207,47 @@ class BaseVectorStore(ABC):
         """
         pass
 
+    def retrieve_by_embedding_quantized(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        min_similarity: float = 0.0,
+        rescore_multiplier: Optional[float] = None,
+        use_rescoring: Optional[bool] = None,
+        language_filter: Optional[str] = None,
+        doc_level_filter: Optional[str] = None,
+    ) -> List[Tuple[StoredDoc, float]]:
+        """
+        Retrieve documents using quantized embeddings (faster, less memory).
+        
+        Uses two-stage retrieval:
+        1. Fast binary search to get top candidates
+        2. Rescore with higher precision embeddings
+        
+        Falls back to standard retrieval if quantization is not enabled.
+        
+        Args:
+            query_embedding: Query vector (float32)
+            top_k: Maximum number of results
+            min_similarity: Minimum similarity threshold
+            rescore_multiplier: Retrieve N×top_k candidates for rescoring
+            use_rescoring: Whether to use rescoring step
+            language_filter: Optional language code to filter by
+            doc_level_filter: Optional document level filter
+            
+        Returns:
+            List of (document, similarity_score) tuples, sorted by score descending
+        """
+        # Default implementation: fall back to standard retrieval
+        # Backends with quantization support should override this method
+        return self.retrieve_by_embedding(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            min_similarity=min_similarity,
+            language_filter=language_filter,
+            doc_level_filter=doc_level_filter,
+        )
+
     @abstractmethod
     def list_doc_ids(self, pattern: str = "*", limit: int = 10_000) -> List[str]:
         """

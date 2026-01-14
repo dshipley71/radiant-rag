@@ -21,6 +21,15 @@ import redis
 
 from radiant.config import RedisConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
+from radiant.storage.quantization import (
+    QuantizationConfig,
+    quantize_embeddings,
+    embedding_to_bytes as quant_embedding_to_bytes,
+    bytes_to_embedding as quant_bytes_to_embedding,
+    get_binary_dimension,
+    rescore_candidates,
+    QUANTIZATION_AVAILABLE,
+)
 
 # Try to import Redis Search components (requires redis-stack)
 REDIS_SEARCH_IMPORTS_AVAILABLE = False
@@ -157,6 +166,20 @@ class RedisVectorStore(BaseVectorStore):
         self._index_created = False
         self._redis_search_available: Optional[bool] = None
         self._embedding_dim: Optional[int] = None
+        
+        # Quantization configuration
+        self._quant_config = config.quantization
+        self._binary_index_created = False
+        self._int8_index_created = False
+        
+        # Load int8 calibration ranges if provided
+        self._int8_ranges: Optional[np.ndarray] = None
+        if self._quant_config.enabled and self._quant_config.int8_ranges_file:
+            try:
+                self._int8_ranges = np.load(self._quant_config.int8_ranges_file)
+                logger.info(f"Loaded int8 calibration ranges from {self._quant_config.int8_ranges_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load int8 ranges: {e}")
     
     def _check_search_available(self) -> bool:
         """
@@ -279,6 +302,79 @@ class RedisVectorStore(BaseVectorStore):
     def _bytes_to_embedding(self, data: bytes) -> List[float]:
         """Convert bytes back to embedding list."""
         return np.frombuffer(data, dtype=np.float32).tolist()
+    
+    def _binary_doc_key(self, doc_id: str) -> str:
+        """Generate Redis key for binary embedding."""
+        return f"{self._prefix}:{self._doc_ns}_binary:{doc_id}"
+    
+    def _int8_doc_key(self, doc_id: str) -> str:
+        """Generate Redis key for int8 embedding."""
+        return f"{self._prefix}:{self._doc_ns}_int8:{doc_id}"
+    
+    def _store_quantized_embeddings(
+        self,
+        doc_id: str,
+        embedding: List[float],
+    ) -> None:
+        """Store quantized versions of embedding (binary and/or int8)."""
+        if not self._quant_config.enabled or not QUANTIZATION_AVAILABLE:
+            return
+        
+        try:
+            embedding_array = np.array([embedding], dtype=np.float32)
+            
+            # Store binary version
+            if self._quant_config.precision in ("binary", "both"):
+                try:
+                    binary_emb = quantize_embeddings(embedding_array, precision="ubinary")[0]
+                    self._r.hset(
+                        self._binary_doc_key(doc_id),
+                        "binary_embedding",
+                        quant_embedding_to_bytes(binary_emb)
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to store binary embedding for {doc_id}: {e}")
+            
+            # Store int8 version
+            if self._quant_config.precision in ("int8", "both"):
+                try:
+                    int8_emb = quantize_embeddings(
+                        embedding_array,
+                        precision="int8",
+                        ranges=self._int8_ranges
+                    )[0]
+                    self._r.hset(
+                        self._int8_doc_key(doc_id),
+                        "int8_embedding",
+                        quant_embedding_to_bytes(int8_emb)
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to store int8 embedding for {doc_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Quantization storage failed for {doc_id}: {e}")
+    
+    def _load_binary_embedding(self, doc_id: str) -> Optional[np.ndarray]:
+        """Load binary embedding for a document."""
+        try:
+            data = self._r.hget(self._binary_doc_key(doc_id), "binary_embedding")
+            if data:
+                binary_dim = get_binary_dimension(self._embedding_dim or 384)
+                return quant_bytes_to_embedding(data, np.uint8, (binary_dim,))
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to load binary embedding for {doc_id}: {e}")
+            return None
+    
+    def _load_int8_embedding(self, doc_id: str) -> Optional[np.ndarray]:
+        """Load int8 embedding for a document."""
+        try:
+            data = self._r.hget(self._int8_doc_key(doc_id), "int8_embedding")
+            if data:
+                return quant_bytes_to_embedding(data, np.int8, (self._embedding_dim or 384,))
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to load int8 embedding for {doc_id}: {e}")
+            return None
 
     def upsert(
         self,
@@ -327,6 +423,10 @@ class RedisVectorStore(BaseVectorStore):
         }
 
         self._r.hset(key, mapping=mapping)
+        
+        # Store quantized versions if enabled
+        self._store_quantized_embeddings(doc_id, embedding)
+        
         logger.debug(f"Upserted document: {doc_id}")
 
     def upsert_doc_only(
@@ -654,6 +754,112 @@ class RedisVectorStore(BaseVectorStore):
         # Sort by similarity descending (should already be sorted, but ensure)
         docs.sort(key=lambda x: x[1], reverse=True)
         return docs
+
+    def retrieve_by_embedding_quantized(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        min_similarity: float = 0.0,
+        rescore_multiplier: Optional[float] = None,
+        use_rescoring: Optional[bool] = None,
+        language_filter: Optional[str] = None,
+        doc_level_filter: Optional[str] = None,
+    ) -> List[Tuple[StoredDoc, float]]:
+        """
+        Retrieve documents using binary quantization for speed.
+        
+        Two-stage process:
+        1. Retrieve candidates using standard retrieval (binary search needs index)
+        2. Rescore with int8/float32 embeddings for accuracy
+        
+        Args:
+            query_embedding: Query vector (float32)
+            top_k: Maximum number of results
+            min_similarity: Minimum similarity threshold
+            rescore_multiplier: Retrieve N×top_k candidates for rescoring
+            use_rescoring: Whether to use rescoring step
+            language_filter: Optional language code filter
+            doc_level_filter: Optional document level filter
+            
+        Returns:
+            List of (document, similarity_score) tuples sorted by score descending
+        """
+        # Fall back to standard retrieval if quantization disabled
+        if not self._quant_config.enabled or not QUANTIZATION_AVAILABLE:
+            logger.debug("Quantization not enabled, using standard retrieval")
+            return self.retrieve_by_embedding(
+                query_embedding, top_k, min_similarity,
+                language_filter=language_filter,
+                doc_level_filter=doc_level_filter
+            )
+        
+        # Use config defaults if not specified
+        rescore_mult = rescore_multiplier if rescore_multiplier is not None else self._quant_config.rescore_multiplier
+        use_rescore = use_rescoring if use_rescoring is not None else self._quant_config.use_rescoring
+        
+        # Stage 1: Get candidates (using standard retrieval for now)
+        # In production, this would use a binary HNSW index for speed
+        candidate_k = int(top_k * rescore_mult) if use_rescore else top_k
+        
+        candidates = self.retrieve_by_embedding(
+            query_embedding,
+            candidate_k,
+            min_similarity=0.0,  # Get all candidates for rescoring
+            language_filter=language_filter,
+            doc_level_filter=doc_level_filter,
+        )
+        
+        if not use_rescore or not candidates:
+            return candidates[:top_k]
+        
+        # Stage 2: Rescore with int8/float32 embeddings
+        query_vec = np.array(query_embedding, dtype=np.float32)
+        candidate_embeddings: List[np.ndarray] = []
+        candidate_ids: List[str] = []
+        candidate_docs: List[StoredDoc] = []
+        
+        for doc, _ in candidates:
+            # Try to load int8 embedding first (faster than float32)
+            int8_emb = self._load_int8_embedding(doc.doc_id)
+            
+            if int8_emb is not None:
+                candidate_embeddings.append(int8_emb.astype(np.float32))
+                candidate_ids.append(doc.doc_id)
+                candidate_docs.append(doc)
+            else:
+                # Fall back to float32 from stored embedding
+                try:
+                    key = self._doc_key(doc.doc_id)
+                    emb_bytes = self._r.hget(key, "embedding")
+                    if emb_bytes:
+                        float_emb = np.frombuffer(emb_bytes, dtype=np.float32)
+                        candidate_embeddings.append(float_emb)
+                        candidate_ids.append(doc.doc_id)
+                        candidate_docs.append(doc)
+                except Exception as e:
+                    logger.debug(f"Failed to load embedding for rescoring: {e}")
+                    continue
+        
+        if not candidate_embeddings:
+            logger.warning("No embeddings loaded for rescoring, returning original candidates")
+            return candidates[:top_k]
+        
+        # Rescore using cosine similarity
+        rescored = rescore_candidates(query_vec, candidate_embeddings, candidate_ids)
+        
+        # Build final results with documents
+        doc_map = {doc.doc_id: doc for doc in candidate_docs}
+        results: List[Tuple[StoredDoc, float]] = []
+        for doc_id, score in rescored[:top_k]:
+            if score >= min_similarity and doc_id in doc_map:
+                results.append((doc_map[doc_id], score))
+        
+        logger.debug(
+            f"Quantized retrieval: {len(candidates)} candidates → "
+            f"{len(rescored)} rescored → {len(results)} returned"
+        )
+        
+        return results
 
     def _retrieve_by_embedding_linear(
         self,

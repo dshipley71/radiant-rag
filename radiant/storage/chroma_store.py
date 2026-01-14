@@ -15,8 +15,16 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from radiant.config import ChromaConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
+from radiant.storage.quantization import (
+    QuantizationConfig,
+    quantize_embeddings,
+    rescore_candidates,
+    QUANTIZATION_AVAILABLE,
+)
 
 # Try to import ChromaDB
 CHROMA_AVAILABLE = False
@@ -103,6 +111,47 @@ class ChromaVectorStore(BaseVectorStore):
             name=config.collection_name,
             metadata={"hnsw:space": distance_fn},
         )
+        
+        # Quantization configuration
+        self._quant_config = config.quantization
+        
+        # Load int8 calibration ranges if provided
+        self._int8_ranges: Optional[np.ndarray] = None
+        if self._quant_config.enabled and self._quant_config.int8_ranges_file:
+            try:
+                self._int8_ranges = np.load(self._quant_config.int8_ranges_file)
+                logger.info(f"Loaded int8 calibration ranges from {self._quant_config.int8_ranges_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load int8 ranges: {e}")
+        
+        # Create separate collections for quantized embeddings if enabled
+        if self._quant_config.enabled and QUANTIZATION_AVAILABLE:
+            if self._quant_config.precision in ("binary", "both"):
+                try:
+                    self._binary_collection = self._client.get_or_create_collection(
+                        name=f"{config.collection_name}_binary",
+                        metadata={"hnsw:space": "l2"},  # Use L2 for binary (hamming not directly supported)
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create binary collection: {e}")
+                    self._binary_collection = None
+            else:
+                self._binary_collection = None
+            
+            if self._quant_config.precision in ("int8", "both"):
+                try:
+                    self._int8_collection = self._client.get_or_create_collection(
+                        name=f"{config.collection_name}_int8",
+                        metadata={"hnsw:space": distance_fn},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create int8 collection: {e}")
+                    self._int8_collection = None
+            else:
+                self._int8_collection = None
+        else:
+            self._binary_collection = None
+            self._int8_collection = None
         
         logger.info(
             f"Initialized ChromaDB store at '{persist_dir}' "
@@ -198,6 +247,39 @@ class ChromaVectorStore(BaseVectorStore):
             embeddings=[embedding],
             metadatas=[prepared_meta],
         )
+        
+        # Store quantized versions if enabled
+        if self._quant_config.enabled and QUANTIZATION_AVAILABLE:
+            try:
+                embedding_array = np.array([embedding], dtype=np.float32)
+                
+                # Store binary version
+                if self._quant_config.precision in ("binary", "both") and self._binary_collection is not None:
+                    try:
+                        binary_emb = quantize_embeddings(embedding_array, precision="ubinary")[0]
+                        self._binary_collection.upsert(
+                            ids=[doc_id],
+                            embeddings=[binary_emb.tolist()],
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to store binary embedding: {e}")
+                
+                # Store int8 version
+                if self._quant_config.precision in ("int8", "both") and self._int8_collection is not None:
+                    try:
+                        int8_emb = quantize_embeddings(
+                            embedding_array,
+                            precision="int8",
+                            ranges=self._int8_ranges
+                        )[0]
+                        self._int8_collection.upsert(
+                            ids=[doc_id],
+                            embeddings=[int8_emb.tolist()],
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to store int8 embedding: {e}")
+            except Exception as e:
+                logger.warning(f"Quantization storage failed for {doc_id}: {e}")
         
         logger.debug(f"Upserted document with embedding: {doc_id}")
 
@@ -375,6 +457,35 @@ class ChromaVectorStore(BaseVectorStore):
             logger.warning(f"Failed to delete document {doc_id}: {e}")
             return False
 
+    def _build_where_filter(
+        self,
+        language_filter: Optional[str] = None,
+        doc_level_filter: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Build where clause for Chroma filtering."""
+        # Normalize doc_level_filter
+        level_value = None
+        if doc_level_filter:
+            filter_lower = doc_level_filter.lower()
+            if filter_lower in ("child", "leaves", "leaf"):
+                level_value = "child"
+            elif filter_lower in ("parent", "parents"):
+                level_value = "parent"
+        
+        # Build where clause
+        conditions: List[Dict[str, Any]] = [{"has_embedding": True}]
+        
+        if language_filter:
+            conditions.append({"language_code": language_filter})
+        
+        if level_value:
+            conditions.append({"doc_level": level_value})
+        
+        if len(conditions) == 1:
+            return conditions[0]
+        else:
+            return {"$and": conditions}
+
     def retrieve_by_embedding(
         self,
         query_embedding: List[float],
@@ -449,6 +560,136 @@ class ChromaVectorStore(BaseVectorStore):
         # Sort by similarity descending
         docs.sort(key=lambda x: x[1], reverse=True)
         return docs
+
+    def retrieve_by_embedding_quantized(
+        self,
+        query_embedding: List[float],
+        top_k: int,
+        min_similarity: float = 0.0,
+        rescore_multiplier: Optional[float] = None,
+        use_rescoring: Optional[bool] = None,
+        language_filter: Optional[str] = None,
+        doc_level_filter: Optional[str] = None,
+    ) -> List[Tuple[StoredDoc, float]]:
+        """Retrieve using binary quantization for speed with rescoring for accuracy."""
+        # Fall back if quantization not enabled
+        if not self._quant_config.enabled or not QUANTIZATION_AVAILABLE or self._binary_collection is None:
+            logger.debug("Quantization not available, using standard retrieval")
+            return self.retrieve_by_embedding(
+                query_embedding, top_k, min_similarity,
+                language_filter=language_filter,
+                doc_level_filter=doc_level_filter
+            )
+        
+        # Use config defaults
+        rescore_mult = rescore_multiplier if rescore_multiplier is not None else self._quant_config.rescore_multiplier
+        use_rescore = use_rescoring if use_rescoring is not None else self._quant_config.use_rescoring
+        candidate_k = int(top_k * rescore_mult) if use_rescore else top_k
+        
+        # Stage 1: Binary search
+        try:
+            query_array = np.array([query_embedding], dtype=np.float32)
+            binary_query = quantize_embeddings(query_array, precision="ubinary")[0]
+        except Exception as e:
+            logger.warning(f"Binary quantization failed: {e}")
+            return self.retrieve_by_embedding(
+                query_embedding, top_k, min_similarity,
+                language_filter=language_filter,
+                doc_level_filter=doc_level_filter
+            )
+        
+        # Build where filter
+        where_filter = self._build_where_filter(language_filter, doc_level_filter)
+        
+        # Query binary collection
+        try:
+            results = self._binary_collection.query(
+                query_embeddings=[binary_query.tolist()],
+                n_results=candidate_k,
+                where=where_filter if where_filter else None,
+                include=["distances"],
+            )
+            
+            candidate_ids = results["ids"][0] if results["ids"] else []
+        except Exception as e:
+            logger.warning(f"Binary search failed: {e}")
+            return self.retrieve_by_embedding(
+                query_embedding, top_k, min_similarity,
+                language_filter=language_filter,
+                doc_level_filter=doc_level_filter
+            )
+        
+        if not candidate_ids:
+            return []
+        
+        if not use_rescore:
+            # Get documents for binary results
+            final_results: List[Tuple[StoredDoc, float]] = []
+            for doc_id in candidate_ids[:top_k]:
+                doc = self.get_doc(doc_id)
+                if doc:
+                    final_results.append((doc, 1.0))  # Placeholder score
+            return final_results
+        
+        # Stage 2: Rescore with int8/float32
+        query_vec = np.array(query_embedding, dtype=np.float32)
+        candidate_embeddings: List[np.ndarray] = []
+        candidate_docs: List[StoredDoc] = []
+        
+        for doc_id in candidate_ids:
+            doc = self.get_doc(doc_id)
+            if not doc:
+                continue
+            
+            # Try int8 collection first
+            if self._int8_collection is not None:
+                try:
+                    int8_result = self._int8_collection.get(
+                        ids=[doc_id],
+                        include=["embeddings"],
+                    )
+                    if int8_result["embeddings"] and int8_result["embeddings"][0]:
+                        emb = np.array(int8_result["embeddings"][0], dtype=np.int8).astype(np.float32)
+                        candidate_embeddings.append(emb)
+                        candidate_docs.append(doc)
+                        continue
+                except Exception:
+                    pass
+            
+            # Fall back to float32
+            try:
+                float_result = self._collection.get(
+                    ids=[doc_id],
+                    include=["embeddings"],
+                )
+                if float_result["embeddings"] and float_result["embeddings"][0]:
+                    emb = np.array(float_result["embeddings"][0], dtype=np.float32)
+                    candidate_embeddings.append(emb)
+                    candidate_docs.append(doc)
+            except Exception as e:
+                logger.debug(f"Failed to load embedding for rescoring: {e}")
+                continue
+        
+        if not candidate_embeddings:
+            logger.warning("No embeddings loaded for rescoring")
+            return []
+        
+        # Rescore
+        rescored = rescore_candidates(query_vec, candidate_embeddings, [d.doc_id for d in candidate_docs])
+        
+        # Build results
+        doc_map = {doc.doc_id: doc for doc in candidate_docs}
+        results: List[Tuple[StoredDoc, float]] = []
+        for doc_id, score in rescored[:top_k]:
+            if score >= min_similarity and doc_id in doc_map:
+                results.append((doc_map[doc_id], score))
+        
+        logger.debug(
+            f"Quantized retrieval: {len(candidate_ids)} candidates → "
+            f"{len(rescored)} rescored → {len(results)} returned"
+        )
+        
+        return results
 
     def list_doc_ids(self, pattern: str = "*", limit: int = 10_000) -> List[str]:
         """List document IDs (pattern ignored for Chroma)."""
