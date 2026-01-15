@@ -10,12 +10,15 @@ A production-quality Agentic Retrieval-Augmented Generation (RAG) system with mu
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
 - [Configuration](#configuration)
+- [Storage Backends](#storage-backends)
+- [Binary Quantization](#binary-quantization)
 - [Agent Pipeline](#agent-pipeline)
 - [Ingestion Pipeline](#ingestion-pipeline)
 - [Query Pipeline](#query-pipeline)
 - [GitHub Repository Ingestion](#github-repository-ingestion)
 - [Code-Aware Chunking](#code-aware-chunking)
 - [Multilingual Support](#multilingual-support)
+- [Metrics & Monitoring](#metrics--monitoring)
 - [Advanced Features](#advanced-features)
 - [API Reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
@@ -28,20 +31,26 @@ Radiant RAG is an enterprise-grade retrieval-augmented generation system that co
 
 - **Multi-agent orchestration** for intelligent query processing
 - **Hybrid search** combining dense embeddings and BM25 sparse retrieval
+- **Multiple storage backends** - Redis, ChromaDB, and PostgreSQL with pgvector
+- **Binary quantization** for 10-20x faster retrieval with 3.5x memory reduction
 - **GitHub repository ingestion** with code-aware chunking
 - **Multilingual support** with automatic language detection and translation
 - **Professional reporting** in multiple formats
+- **Metrics export** with Prometheus and OpenTelemetry support
 
 ### Key Features
 
 | Category | Features |
 |----------|----------|
 | **Retrieval** | Dense (HNSW), BM25, Hybrid (RRF fusion), Web Search |
-| **Agents** | 15+ specialized agents for planning, retrieval, post-processing |
+| **Storage** | Redis (default), ChromaDB, PostgreSQL with pgvector |
+| **Quantization** | Binary and Int8 quantization for faster retrieval |
+| **Agents** | 20+ specialized agents for planning, retrieval, post-processing |
 | **Ingestion** | Files, URLs, GitHub repos, with code-aware chunking |
 | **Languages** | 176 languages detected, LLM-based translation |
 | **Output** | Markdown, HTML, JSON, Text reports |
 | **Interfaces** | CLI, TUI (Textual), Python API |
+| **Monitoring** | Prometheus metrics, OpenTelemetry tracing |
 
 ---
 
@@ -75,12 +84,44 @@ Radiant RAG is an enterprise-grade retrieval-augmented generation system that co
 │         ┌──────────────────┼──────────────────┼──────────────────┐          │
 │         ▼                  ▼                  ▼                  ▼          │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │    LLM      │    │   Redis     │    │    BM25     │    │   Local     │   │
-│  │   Client    │    │Vector Store │    │    Index    │    │   Models    │   │
-│  │  (Ollama)   │    │   (HNSW)    │    │ (Persistent)│    │(Embeddings) │   │
+│  │    LLM      │    │   Vector    │    │    BM25     │    │   Local     │   │
+│  │   Client    │    │   Store     │    │    Index    │    │   Models    │   │
+│  │  (Ollama)   │    │(Redis/Chroma│    │ (Persistent)│    │(Embeddings) │   │
+│  │             │    │  /PgVector) │    │             │    │             │   │
 │  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Agent Hierarchy
+
+```
+BaseAgent (Abstract)
+├── LLMAgent (requires LLM client)
+│   ├── PlanningAgent
+│   ├── AnswerSynthesisAgent
+│   ├── CriticAgent
+│   ├── QueryDecompositionAgent
+│   ├── QueryRewriteAgent
+│   ├── QueryExpansionAgent
+│   ├── WebSearchAgent
+│   ├── SummarizationAgent
+│   ├── ContextEvaluationAgent
+│   ├── FactVerificationAgent
+│   ├── CitationTrackingAgent
+│   ├── LanguageDetectionAgent
+│   ├── TranslationAgent
+│   └── IntelligentChunkingAgent
+│
+├── RetrievalAgent (requires vector store)
+│   └── DenseRetrievalAgent
+│
+└── BaseAgent (direct inheritance)
+    ├── BM25RetrievalAgent
+    ├── RRFAgent
+    ├── HierarchicalAutoMergingAgent
+    ├── CrossEncoderRerankingAgent
+    └── MultiHopReasoningAgent
 ```
 
 ### Data Flow Diagram
@@ -163,7 +204,7 @@ Radiant RAG is an enterprise-grade retrieval-augmented generation system that co
 ### Prerequisites
 
 - Python 3.10+
-- Redis Stack (Redis + RediSearch module)
+- Redis Stack (Redis + RediSearch module) - default backend
 - CUDA-capable GPU (optional, for faster inference)
 
 ### Step 1: Install Redis Stack
@@ -366,33 +407,36 @@ The system is configured via `config.yaml`. All settings can be overridden with 
 ### Core Settings
 
 ```yaml
-# LLM Configuration
-llm:
-  # Chat model for generation
-  model: "gemma3:12b-cloud"
-  
-  # Temperature (0.0 = deterministic, 1.0 = creative)
-  temperature: 0.3
-  
-  # Maximum tokens in response
-  max_tokens: 4096
+# LLM Configuration (Ollama OpenAI-compatible)
+ollama:
+  openai_base_url: "https://your-ollama-host/v1"
+  openai_api_key: "your-api-key"
+  chat_model: "qwen2.5:latest"
+  timeout: 90
+  max_retries: 3
 
-# Embedding Models
-embeddings:
-  # Sentence transformer model
-  model: "sentence-transformers/all-MiniLM-L12-v2"
-  
-  # Embedding dimension (must match model)
-  dimension: 384
-
-# Reranking Model  
-reranking:
-  model: "cross-encoder/ms-marco-MiniLM-L12-v2"
-  enabled: true
-  top_k: 5
+# Local Models (HuggingFace / sentence-transformers)
+local_models:
+  embed_model_name: "sentence-transformers/all-MiniLM-L12-v2"
+  cross_encoder_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
+  device: "auto"
+  embedding_dimension: 384
 ```
 
-### Storage Backend Settings
+### Environment Variable Overrides
+
+All configuration values can be overridden with environment variables:
+
+```bash
+# Pattern: RADIANT_<SECTION>_<KEY>
+export RADIANT_OLLAMA_CHAT_MODEL="llama3:70b"
+export RADIANT_REDIS_URL="redis://redis-server:6379/0"
+export RADIANT_RETRIEVAL_DENSE_TOP_K="20"
+```
+
+---
+
+## Storage Backends
 
 Radiant RAG supports multiple vector storage backends. Choose the one that best fits your deployment needs:
 
@@ -402,12 +446,12 @@ Radiant RAG supports multiple vector storage backends. Choose the one that best 
 | **Chroma** | Development, testing | Easy setup, embedded | Less scalable |
 | **PgVector** | Enterprise, PostgreSQL shops | Mature, ACID, integrates with existing DB | More setup required |
 
-```yaml
-# Storage backend selection
-storage:
-  backend: redis  # Options: redis, chroma, pgvector
+### Redis Configuration (Default)
 
-# Redis Configuration (default)
+```yaml
+storage:
+  backend: redis
+
 redis:
   url: "redis://localhost:6379/0"
   key_prefix: "radiant"
@@ -415,15 +459,34 @@ redis:
     name: "radiant_vectors"
     hnsw_m: 16
     hnsw_ef_construction: 200
+    hnsw_ef_runtime: 100
     distance_metric: "COSINE"
+```
 
-# Chroma Configuration (alternative)
+### Chroma Configuration
+
+```yaml
+storage:
+  backend: chroma
+
 chroma:
   persist_directory: "./data/chroma_db"
   collection_name: "radiant_docs"
   distance_fn: "cosine"
+  embedding_dimension: 384
+```
 
-# PgVector Configuration (alternative)
+To use Chroma, install the optional dependency:
+```bash
+pip install chromadb
+```
+
+### PgVector Configuration
+
+```yaml
+storage:
+  backend: pgvector
+
 pgvector:
   # Use PG_CONN_STR env var or set here
   connection_string: "postgresql://user:pass@localhost:5432/radiant"
@@ -433,393 +496,119 @@ pgvector:
   search_strategy: "hnsw"
 ```
 
-To use Chroma, install the optional dependency:
-```bash
-pip install chromadb
-```
-
 To use PgVector, install PostgreSQL with the pgvector extension and the Python driver:
 ```bash
 pip install psycopg2-binary
 ```
 
-### Retrieval Settings
+---
 
-```yaml
-retrieval:
-  # Default retrieval mode
-  default_mode: "hybrid"  # hybrid, dense, bm25
-  
-  # Number of documents to retrieve
-  top_k: 10
-  
-  # Search scope for hierarchical storage
-  # "leaves" - only search leaf chunks (default)
-  # "parents" - only search parent documents (requires embed_parents: true)
-  # "all" - search both leaves and parents (requires embed_parents: true)
-  search_scope: "leaves"
-  
-  # Dense retrieval settings
-  dense:
-    # Number of candidates for HNSW
-    ef_runtime: 200
-  
-  # BM25 settings
-  bm25:
-    k1: 1.5    # Term frequency saturation
-    b: 0.75   # Length normalization
-  
-  # RRF fusion settings
-  rrf:
-    k: 60     # RRF constant (higher = more weight to lower ranks)
-```
+## Binary Quantization
 
-### Ingestion Settings
+Binary quantization provides significant performance improvements for large-scale deployments:
 
-```yaml
-ingestion:
-  # Batch processing
-  batch_enabled: true
-  embedding_batch_size: 32  # Larger = faster, more memory
-  redis_batch_size: 100
-  
-  # Chunking
-  child_chunk_size: 512
-  child_chunk_overlap: 50
-  
-  # Parent document settings (hierarchical mode)
-  parent_chunk_size: 2048
-  
-  # Embed parent documents (enables parent retrieval)
-  # When true, parent documents are embedded alongside child chunks
-  # Required for search_scope: "parents" or "all"
-  embed_parents: false
-  
-  # Progress display
-  show_progress: true
-```
+- ⚡ **10-20x faster** retrieval
+- 💾 **3.5x less** memory usage  
+- 🎯 **95-96%** accuracy retention
+- 🔧 **Zero breaking changes** - disabled by default
 
-### Web Crawler Settings
-
-```yaml
-web_crawler:
-  # Maximum crawl depth (0 = seed URLs only)
-  max_depth: 2
-  
-  # Maximum pages per crawl session
-  max_pages: 100
-  
-  # Stay on same domain
-  same_domain_only: true
-  
-  # Rate limiting (seconds between requests)
-  delay: 0.5
-  
-  # Request timeout
-  timeout: 30
-  
-  # URL patterns to exclude
-  exclude_patterns:
-    - ".*\\.(jpg|jpeg|png|gif|css|js)$"
-    - ".*/login.*"
-    - ".*/logout.*"
-```
-
-### GitHub Crawler Settings
-
-```yaml
-github_crawler:
-  # Maximum files to fetch per repository
-  max_files: 200
-  
-  # Rate limiting delay
-  delay: 0.5
-  
-  # File extensions to include
-  include_extensions:
-    # Documentation
-    - ".md"
-    - ".txt"
-    - ".rst"
-    # Code
-    - ".py"
-    - ".js"
-    - ".ts"
-    - ".java"
-    - ".go"
-    - ".rs"
-```
-
-### Agent Settings
-
-```yaml
-# Planning Agent
-planning:
-  enabled: true
-  
-# Query Processing
-query_decomposition:
-  enabled: true
-  max_sub_queries: 5
-
-query_expansion:
-  enabled: true
-  max_expansions: 3
-
-# Post-Retrieval
-context_evaluation:
-  enabled: true
-  min_relevance_score: 0.3
-
-summarization:
-  enabled: true
-  max_context_length: 8000
-
-multihop_reasoning:
-  enabled: true
-  max_hops: 3
-
-fact_verification:
-  enabled: true
-  min_confidence: 0.7
-
-# Generation
-citation:
-  enabled: true
-  style: "inline"  # inline, footnote, academic, enterprise
-
-critic:
-  enabled: true
-  min_confidence: 0.6
-```
-
-### Environment Variable Overrides
-
-All configuration values can be overridden with environment variables:
+### Quick Setup
 
 ```bash
-# Pattern: RADIANT_<SECTION>_<KEY>
-export RADIANT_LLM_MODEL="llama3:8b"
-export RADIANT_LLM_TEMPERATURE="0.5"
-export RADIANT_RETRIEVAL_TOP_K="20"
-export RADIANT_INGESTION_EMBEDDING_BATCH_SIZE="64"
+# Step 1: Install dependencies
+pip install sentence-transformers>=3.2.0 numpy>=1.26.0
+
+# Step 2: Calibrate (only for int8/both precision)
+python tools/calibrate_int8_ranges.py \
+    --sample-size 100000 \
+    --output data/int8_ranges.npy
+
+# Step 3: Enable in config.yaml
 ```
+
+### Configuration
+
+```yaml
+redis:  # or chroma, or pgvector
+  quantization:
+    enabled: true
+    precision: "both"  # Options: "binary", "int8", "both"
+    rescore_multiplier: 4.0
+    use_rescoring: true
+    int8_ranges_file: "data/int8_ranges.npy"
+```
+
+### Performance Comparison (1M Documents, 384-dim)
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Memory | 1,536 MB | 432 MB | **3.5x less** |
+| Retrieval Speed | 50-100ms | 5-10ms | **10-20x faster** |
+| Accuracy | 100% | 95-96% | **-4%** |
+
+For detailed documentation, see `BINARY_QUANTIZATION_README.md`.
 
 ---
 
 ## Agent Pipeline
 
-### Agent Inventory
+### Agent Categories
 
-Radiant RAG includes 15+ specialized agents organized by pipeline stage:
+| Category | Agents | Purpose |
+|----------|--------|---------|
+| Planning | PlanningAgent | Analyze query, select retrieval strategy |
+| Query Processing | Decomposition, Rewrite, Expansion | Optimize queries |
+| Retrieval | Dense, BM25, Web Search | Fetch documents |
+| Fusion | RRFAgent | Combine retrieval results |
+| Post-Retrieval | AutoMerge, Rerank, ContextEval, Summarization, MultiHop | Refine context |
+| Generation | Synthesis, Critic | Generate and evaluate answers |
+| Verification | FactVerification, Citation | Ensure accuracy |
+| Multilingual | LanguageDetection, Translation | Cross-language support |
+| Tools | Calculator, CodeExecution | Extended capabilities |
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              AGENT INVENTORY                                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  PLANNING STAGE                                                             │
-│  ├── PlanningAgent          Analyze query, select retrieval strategy        │
-│  └── StrategyMemoryAgent    Learn from successful retrieval patterns        │
-│                                                                             │
-│  QUERY PROCESSING STAGE                                                     │
-│  ├── QueryDecompositionAgent  Break complex queries into sub-queries        │
-│  ├── QueryRewriteAgent        Rewrite for clarity and precision             │
-│  └── QueryExpansionAgent      Add synonyms and related terms                │
-│                                                                             │
-│  RETRIEVAL STAGE                                                            │
-│  ├── DenseRetrievalAgent      Semantic search with embeddings               │
-│  ├── BM25RetrievalAgent       Keyword search with BM25                      │
-│  ├── WebSearchAgent           Real-time web search augmentation             │
-│  └── RRFAgent                 Reciprocal Rank Fusion of results             │
-│                                                                             │
-│  POST-RETRIEVAL STAGE                                                       │
-│  ├── HierarchicalAutoMergingAgent  Merge child chunks to parents            │
-│  ├── CrossEncoderRerankingAgent    Rerank with cross-encoder model          │
-│  ├── ContextEvaluationAgent        Score relevance of retrieved docs        │
-│  ├── SummarizationAgent            Summarize long contexts                  │
-│  ├── MultiHopReasoningAgent        Multi-step reasoning chains              │
-│  └── FactVerificationAgent         Verify claims against context            │
-│                                                                             │
-│  GENERATION STAGE                                                           │
-│  ├── AnswerSynthesisAgent          Generate final answer                    │
-│  ├── CitationTrackingAgent         Add source citations                     │
-│  └── CriticAgent                   Evaluate answer quality                  │
-│                                                                             │
-│  INGESTION AGENTS                                                           │
-│  ├── IntelligentChunkingAgent      Semantic-aware chunking                  │
-│  ├── LanguageDetectionAgent        Detect document language                 │
-│  └── TranslationAgent              Translate to canonical language          │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### AgentResult Pattern
 
-### Agent Execution Flow
+All agents return results wrapped in `AgentResult`:
 
-```
-Query: "Compare BM25 and dense retrieval for RAG systems"
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. PLANNING AGENT                                                           │
-│    Input:  "Compare BM25 and dense retrieval for RAG systems"               │
-│    Output: { mode: "hybrid", decompose: true, expand: true }                │
-│    Reason: Comparison query needs both keyword (BM25) and semantic (dense)  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. QUERY DECOMPOSITION AGENT                                                │
-│    Input:  "Compare BM25 and dense retrieval for RAG systems"               │
-│    Output: [                                                                │
-│      "What is BM25 retrieval?",                                             │
-│      "What is dense retrieval with embeddings?",                            │
-│      "How do BM25 and dense retrieval compare for RAG?"                     │
-│    ]                                                                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 3. QUERY EXPANSION AGENT                                                    │
-│    Input:  "What is BM25 retrieval?"                                        │
-│    Output: "BM25 retrieval sparse lexical keyword term frequency TF-IDF"    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                        ┌───────────┴───────────┐
-                        ▼                       ▼
-┌───────────────────────────────┐ ┌───────────────────────────────┐
-│ 4a. DENSE RETRIEVAL AGENT     │ │ 4b. BM25 RETRIEVAL AGENT      │
-│     Embedding similarity      │ │     Keyword matching          │
-│     Returns: 10 documents     │ │     Returns: 10 documents     │
-└───────────────────────────────┘ └───────────────────────────────┘
-                        │                       │
-                        └───────────┬───────────┘
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 5. RRF FUSION AGENT                                                         │
-│    Combines dense + BM25 results with Reciprocal Rank Fusion                │
-│    Output: 15 unique documents, ranked by combined score                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 6. CROSS-ENCODER RERANKING AGENT                                            │
-│    Reranks with query-document cross-encoder                                │
-│    Output: Top 5 documents with refined scores                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 7. CONTEXT EVALUATION AGENT                                                 │
-│    Scores: [0.92, 0.87, 0.81, 0.76, 0.54]                                   │
-│    Filters: Documents with score < 0.3 removed                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 8. ANSWER SYNTHESIS AGENT                                                   │
-│    Generates comprehensive answer from context                              │
-│    Output: "BM25 is a sparse retrieval method that uses term frequency..."  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 9. CITATION TRACKING AGENT                                                  │
-│    Adds inline citations: "BM25 uses term frequency [1] and..."             │
-│    Generates bibliography with source documents                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 10. CRITIC AGENT                                                            │
-│     Evaluates: Completeness (0.85), Accuracy (0.90), Relevance (0.88)       │
-│     Overall confidence: 0.87                                                │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-                            FINAL RESPONSE
+```python
+from radiant.agents import AgentResult, AgentStatus
+
+result = agent.run(query="test query")
+
+if result.success:
+    data = result.data
+    print(f"Duration: {result.metrics.duration_ms}ms")
+    print(f"Status: {result.status}")  # SUCCESS, PARTIAL, FAILED, SKIPPED
+else:
+    print(f"Error: {result.error}")
 ```
 
 ---
 
 ## Ingestion Pipeline
 
-### Document Ingestion Flow
+### Supported Formats
+
+| Format | Extensions | Notes |
+|--------|------------|-------|
+| PDF | .pdf | Text extraction with fallback OCR |
+| Word | .docx, .doc | Full support via unstructured |
+| Text | .txt | UTF-8 encoding |
+| Markdown | .md | Preserves structure |
+| HTML | .html | Strips tags, extracts text |
+| Images | .png, .jpg | VLM captioning with Qwen2-VL |
+| Code | .py, .js, .ts, etc. | Code-aware chunking |
+
+### Hierarchical Storage
+
+Documents are stored with parent/child relationships:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          INGESTION PIPELINE                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  INPUT SOURCES                                                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Local     │  │    URLs     │  │   GitHub    │  │   Images    │         │
-│  │   Files     │  │  (Crawled)  │  │Repositories │  │   (VLM)     │         │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
-│         │                │                │                │                │
-│         └────────────────┼────────────────┼────────────────┘                │
-│                          ▼                ▼                                 │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                      DOCUMENT PROCESSOR                              │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │   │
-│  │  │   Parse     │→ │  Language   │→ │ Translation │                   │   │
-│  │  │  Document   │  │  Detection  │  │  (if needed)│                   │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘                   │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                         CHUNKING                                     │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
-│  │  │  HIERARCHICAL MODE (default)                                    │ │   │
-│  │  │  ┌─────────────────────────────────────────────────────────┐    │ │   │
-│  │  │  │  Parent Document (2048 tokens)                          │    │ │   │
-│  │  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │    │ │   │
-│  │  │  │  │ Child 1  │  │ Child 2  │  │ Child 3  │  │ Child 4  │ │    │ │   │
-│  │  │  │  │ (512)    │  │ (512)    │  │ (512)    │  │ (512)    │ │    │ │   │
-│  │  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │    │ │   │
-│  │  │  └─────────────────────────────────────────────────────────┘    │ │   │
-│  │  └─────────────────────────────────────────────────────────────────┘ │   │
-│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
-│  │  │  CODE-AWARE MODE (for source files)                             │ │   │
-│  │  │  Chunks by: functions, classes, methods                         │ │   │
-│  │  │  Preserves: imports context, docstrings                         │ │   │
-│  │  └─────────────────────────────────────────────────────────────────┘ │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                       EMBEDDING                                      │   │
-│  │  ┌─────────────┐                                                     │   │
-│  │  │  Sentence   │  Batch processing for efficiency                    │   │
-│  │  │ Transformer │  Model: all-MiniLM-L12-v2 (384 dim)                 │   │
-│  │  └─────────────┘                                                     │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                        STORAGE                                       │   │
-│  │  ┌─────────────────────────┐  ┌─────────────────────────┐            │   │
-│  │  │  Redis Vector Store     │  │     BM25 Index          │            │   │
-│  │  │  - HNSW index           │  │  - Tokenized documents  │            │   │
-│  │  │  - Document metadata    │  │  - IDF values           │            │   │
-│  │  │  - Parent references    │  │  - Persistent storage   │            │   │
-│  │  └─────────────────────────┘  └─────────────────────────┘            │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+Parent Document (full text)
+├── Child Chunk 1 (embedded, searchable)
+├── Child Chunk 2 (embedded, searchable)
+└── Child Chunk 3 (embedded, searchable)
 ```
-
-### Supported File Types
-
-| Type | Extensions | Processing |
-|------|------------|------------|
-| **Text** | `.txt`, `.md`, `.rst` | Direct text extraction |
-| **Documents** | `.pdf`, `.docx`, `.doc` | Unstructured library |
-| **Web** | `.html`, `.htm` | BeautifulSoup parsing |
-| **Code** | `.py`, `.js`, `.java`, etc. | Code-aware chunking |
-| **Data** | `.json`, `.yaml`, `.csv` | Structured extraction |
-| **Images** | `.png`, `.jpg`, `.jpeg` | VLM captioning |
 
 ---
 
@@ -829,229 +618,65 @@ Query: "Compare BM25 and dense retrieval for RAG systems"
 
 | Mode | Description | Best For |
 |------|-------------|----------|
-| **hybrid** | Dense + BM25 with RRF fusion | General queries (default) |
-| **dense** | Semantic embedding similarity | Conceptual/meaning-based queries |
-| **bm25** | Keyword/term matching | Exact term lookups, technical queries |
+| `hybrid` | Dense + BM25 with RRF fusion | General queries |
+| `dense` | Semantic similarity only | Conceptual queries |
+| `bm25` | Keyword matching only | Technical terms, exact phrases |
 
-### Hybrid Retrieval Flow
+### Configuration
 
-```
-                         Query: "machine learning optimization"
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    ▼                                       ▼
-        ┌───────────────────────┐               ┌───────────────────────┐
-        │   DENSE RETRIEVAL     │               │   BM25 RETRIEVAL      │
-        │   (Semantic)          │               │   (Lexical)           │
-        ├───────────────────────┤               ├───────────────────────┤
-        │ 1. Doc A (0.89)       │               │ 1. Doc C (12.4)       │
-        │ 2. Doc B (0.85)       │               │ 2. Doc A (11.2)       │
-        │ 3. Doc D (0.82)       │               │ 3. Doc E (10.8)       │
-        │ 4. Doc C (0.78)       │               │ 4. Doc B (9.5)        │
-        │ 5. Doc E (0.71)       │               │ 5. Doc F (8.2)        │
-        └───────────────────────┘               └───────────────────────┘
-                    │                                       │
-                    └───────────────────┬───────────────────┘
-                                        ▼
-                    ┌───────────────────────────────────────────┐
-                    │         RRF FUSION (k=60)                 │
-                    ├───────────────────────────────────────────┤
-                    │  RRF_score(d) = Σ 1/(k + rank(d))         │
-                    │                                           │
-                    │  Doc A: 1/61 + 1/62 = 0.0326 (rank 1)     │
-                    │  Doc C: 1/64 + 1/61 = 0.0320 (rank 2)     │
-                    │  Doc B: 1/62 + 1/64 = 0.0318 (rank 3)     │
-                    │  Doc E: 1/65 + 1/63 = 0.0312 (rank 4)     │
-                    │  Doc D: 1/63 + 0    = 0.0159 (rank 5)     │
-                    └───────────────────────────────────────────┘
-                                        │
-                                        ▼
-                    ┌───────────────────────────────────────────┐
-                    │       CROSS-ENCODER RERANKING             │
-                    ├───────────────────────────────────────────┤
-                    │  Query-document relevance scoring         │
-                    │  Final ranking: [Doc A, Doc B, Doc C...]  │
-                    └───────────────────────────────────────────┘
+```yaml
+retrieval:
+  dense_top_k: 10
+  bm25_top_k: 10
+  fused_top_k: 15
+  rrf_k: 60
+  min_similarity: 0.0
+  search_scope: "leaves"  # "leaves", "parents", or "all"
 ```
 
 ---
 
 ## GitHub Repository Ingestion
 
-### Automatic Detection
-
-Radiant RAG automatically detects GitHub URLs and uses specialized processing:
+GitHub URLs are automatically detected and handled with specialized crawling:
 
 ```bash
-# These all work the same way:
 python -m radiant ingest --url "https://github.com/owner/repo"
-python -m radiant ingest --url "https://github.com/owner/repo?tab=readme-ov-file"
-python -m radiant ingest --url "https://github.com/owner/repo/tree/main"
 ```
 
-### GitHub Crawler Flow
+### Features
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        GITHUB CRAWLER PIPELINE                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  INPUT: https://github.com/owner/repo                                       │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 1. URL PARSING                                                        │  │
-│  │    Extract: owner="owner", repo="repo", branch="main"                 │  │
-│  │    Strip: query strings (?tab=...), fragments (#...)                  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 2. FETCH README                                                       │  │
-│  │    URL: https://raw.githubusercontent.com/owner/repo/main/README.md   │  │
-│  │    Extract: markdown links to other files                             │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 3. LIST REPOSITORY FILES (GitHub API)                                 │  │
-│  │    GET https://api.github.com/repos/owner/repo/contents/              │  │
-│  │    Filter by extensions: .py, .js, .md, .go, .rs, etc.                │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 4. FETCH FILE CONTENTS                                                │  │
-│  │    Raw URL: https://raw.githubusercontent.com/owner/repo/main/{path}  │  │
-│  │    Fetches clean text content (no HTML)                               │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 5. CONTENT-AWARE CHUNKING                                             │  │
-│  │    ┌─────────────────────────┐  ┌─────────────────────────┐           │  │
-│  │    │  Markdown Files         │  │  Code Files             │           │  │
-│  │    │  - Q&A pattern          │  │  - Functions/classes    │           │  │
-│  │    │  - Header sections      │  │  - Imports context      │           │  │
-│  │    │  - Paragraphs           │  │  - Docstrings           │           │  │
-│  │    └─────────────────────────┘  └─────────────────────────┘           │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│                    STORE IN INDEX                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+- Raw markdown extraction (not HTML)
+- Follow links in README to find all documentation
+- Code-aware chunking for source files
+- Metadata preservation (path, URL, repo name)
 
-### Supported File Types
+### Configuration
 
-| Category | Extensions |
-|----------|------------|
-| **Documentation** | `.md`, `.txt`, `.rst`, `.mdx` |
-| **Python** | `.py`, `.pyw`, `.pyx` |
-| **JavaScript/TypeScript** | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs` |
-| **Java/JVM** | `.java`, `.kt`, `.kts`, `.scala` |
-| **Systems** | `.go`, `.rs`, `.c`, `.h`, `.cpp`, `.cc`, `.hpp`, `.cs` |
-| **Scripting** | `.rb`, `.php`, `.swift`, `.r` |
-| **Shell** | `.sh`, `.bash`, `.zsh` |
-| **Config/Data** | `.yaml`, `.yml`, `.json`, `.toml`, `.sql` |
-
-### Rate Limiting
-
-| Authentication | Rate Limit |
-|----------------|------------|
-| No token | 60 requests/hour |
-| With `GITHUB_TOKEN` | 5,000 requests/hour |
-
-```bash
-# Set GitHub token for higher rate limits
-export GITHUB_TOKEN="ghp_your_token_here"
+```yaml
+github_crawler:
+  max_files: 200
+  delay: 0.5
+  include_extensions:
+    - ".md"
+    - ".py"
+    - ".js"
 ```
 
 ---
 
 ## Code-Aware Chunking
 
-### How It Works
+Source code files are chunked intelligently:
 
-Instead of blindly splitting code by character count, Radiant RAG parses code structure:
+- Preserves function/class boundaries
+- Includes import context
+- Maintains semantic coherence
+- Extracts metadata (language, block type, line numbers)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       CODE-AWARE CHUNKING                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  INPUT: calculator.py                                                       │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │  import math                                                          │  │
-│  │  from typing import List                                              │  │
-│  │                                                                       │  │
-│  │  class Calculator:                                                    │  │
-│  │      """A simple calculator."""                                       │  │
-│  │                                                                       │  │
-│  │      def add(self, a: float, b: float) -> float:                      │  │
-│  │          """Add two numbers."""                                       │  │
-│  │          return a + b                                                 │  │
-│  │                                                                       │  │
-│  │      def multiply(self, a: float, b: float) -> float:                 │  │
-│  │          """Multiply two numbers."""                                  │  │
-│  │          return a * b                                                 │  │
-│  │                                                                       │  │
-│  │  def helper(x: int) -> int:                                           │  │
-│  │      """Helper function."""                                           │  │
-│  │      return x * 2                                                     │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ CODE PARSER (Python AST)                                              │  │
-│  │ Extracts:                                                             │  │
-│  │   - Imports block                                                     │  │
-│  │   - Class: Calculator                                                 │  │
-│  │   - Method: Calculator.add                                            │  │
-│  │   - Method: Calculator.multiply                                       │  │
-│  │   - Function: helper                                                  │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  OUTPUT CHUNKS:                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Chunk 1: Class Calculator                                             │  │
-│  │ ┌─────────────────────────────────────────────────────────────────┐   │  │
-│  │ │ File: calculator.py | class: Calculator | Language: python      │   │  │
-│  │ │                                                                 │   │  │
-│  │ │ Imports:                                                        │   │  │
-│  │ │ import math                                                     │   │  │
-│  │ │ from typing import List                                         │   │  │
-│  │ │                                                                 │   │  │
-│  │ │ Code:                                                           │   │  │
-│  │ │ class Calculator:                                               │   │  │
-│  │ │     """A simple calculator."""                                  │   │  │
-│  │ │     ...                                                         │   │  │
-│  │ └─────────────────────────────────────────────────────────────────┘   │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Chunk 2: Method Calculator.add                                        │  │
-│  │ ┌─────────────────────────────────────────────────────────────────┐   │  │
-│  │ │ File: calculator.py | method: Calculator.add | Language: python │   │  │
-│  │ │ Imports: import math; from typing import List                   │   │  │
-│  │ │ Code: def add(self, a: float, b: float) -> float: ...           │   │  │
-│  │ └─────────────────────────────────────────────────────────────────┘   │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### Supported Languages
 
-### Language Support
-
-| Language | Parsing Method | Block Types |
-|----------|---------------|-------------|
-| **Python** | AST (full) | classes, functions, methods, imports |
-| **JavaScript/TypeScript** | Regex | classes, functions, arrow functions, imports |
-| **Java** | Regex | classes, methods, imports |
-| **Go** | Regex | types, functions, imports |
-| **Rust** | Regex | structs, impl blocks, functions, use statements |
-| **Others** | Fallback | Whole file as single chunk |
+Python, JavaScript, TypeScript, Java, Go, Rust, C/C++, Ruby, PHP, SQL, and more.
 
 ---
 
@@ -1059,106 +684,106 @@ Instead of blindly splitting code by character count, Radiant RAG parses code st
 
 ### Language Detection
 
-Radiant RAG automatically detects document languages using FastText:
-
 ```yaml
 language_detection:
   enabled: true
-  method: "fast"       # "fast" (FastText), "llm", "auto"
+  method: "fast"  # "fast" or "llm"
   min_confidence: 0.7
   use_llm_fallback: true
+  fallback_language: "en"
 ```
 
-### Translation Pipeline
+### Translation
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      MULTILINGUAL INGESTION                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  INPUT: Document in French                                                  │
-│  "L'apprentissage automatique est une branche de l'intelligence..."         │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ LANGUAGE DETECTION AGENT                                              │  │
-│  │ Method: FastText (0.1ms)                                              │  │
-│  │ Result: { language: "fr", confidence: 0.95 }                          │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ TRANSLATION AGENT                                                     │  │
-│  │ Method: LLM-based translation                                         │  │
-│  │ Source: French → Target: English (canonical)                          │  │
-│  │ Chunked at paragraph boundaries for long documents                    │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                          │                                                  │
-│                          ▼                                                  │
-│  OUTPUT: Indexed Document                                                   │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ content: "Machine learning is a branch of artificial intelligence..." │  │
-│  │ metadata:                                                             │  │
-│  │   language_code: "fr"                                                 │  │
-│  │   language_name: "French"                                             │  │
-│  │   was_translated: true                                                │  │
-│  │   original_content: "L'apprentissage automatique est..."              │  │
-│  │   translation_method: "llm"                                           │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+```yaml
+translation:
+  enabled: true
+  method: "llm"
+  canonical_language: "en"
+  translate_at_ingestion: true
+  preserve_original: true
 ```
 
-### Supported Languages
+---
 
-- **Detection**: 176 languages (FastText)
-- **Translation**: 50+ language pairs (LLM-based)
+## Metrics & Monitoring
+
+### Prometheus Integration
+
+```python
+from radiant.utils.metrics_export import PrometheusMetricsExporter
+
+exporter = PrometheusMetricsExporter(namespace="radiant_rag")
+exporter.register_agent(planning_agent)
+
+# After each agent run
+result = agent.run(query="test")
+exporter.record_execution(result)
+
+# Get metrics for /metrics endpoint
+metrics_output = exporter.get_metrics_output()
+```
+
+### OpenTelemetry Integration
+
+```python
+from radiant.utils.metrics_export import OpenTelemetryExporter
+
+exporter = OpenTelemetryExporter(
+    service_name="radiant-rag",
+    endpoint="http://localhost:4317",
+)
+
+# Trace agent execution
+with exporter.trace_agent(agent, query="test"):
+    result = agent.run(query="test")
+    exporter.record_result(result)
+```
+
+### Unified Collector
+
+```python
+from radiant.utils.metrics_export import MetricsCollector
+
+collector = MetricsCollector.create(
+    prometheus_enabled=True,
+    otel_enabled=True,
+    otel_endpoint="http://localhost:4317",
+)
+
+result = agent.run(query="test")
+collector.record(result)
+```
 
 ---
 
 ## Advanced Features
-
-### Fact Verification
-
-Automatically verifies generated claims against source context:
-
-```yaml
-fact_verification:
-  enabled: true
-  min_claim_confidence: 0.6
-  enable_correction: true
-```
-
-### Citation Tracking
-
-Adds source references to answers:
-
-```yaml
-citation:
-  enabled: true
-  citation_style: "inline"  # inline, footnote, academic, enterprise
-  include_excerpts: true
-  generate_bibliography: true
-```
 
 ### Strategy Memory
 
 Learns from successful retrieval patterns:
 
 ```yaml
-strategy_memory:
+agentic:
+  strategy_memory_enabled: true
+  strategy_memory_path: "./data/strategy_memory.json.gz"
+```
+
+### Citation Tracking
+
+```yaml
+citation:
   enabled: true
-  memory_file: "data/strategy_memory.json.gz"
-  min_samples: 5
+  citation_style: "inline"  # inline, footnote, academic, enterprise
+  generate_bibliography: true
+  generate_audit_trail: true
 ```
 
 ### Web Search Augmentation
 
-Real-time web search for current information:
-
 ```yaml
 web_search:
-  enabled: false  # Enable when needed
+  enabled: false
   provider: "duckduckgo"
   max_results: 5
 ```
@@ -1176,44 +801,60 @@ from radiant.app import RadiantRAG, create_app
 app = create_app("config.yaml")  # Or RadiantRAG()
 
 # Ingest documents
-app.ingest_paths(["./docs/"], hierarchical=True)
+app.ingest_documents(["./docs/"], use_hierarchical=True)
 
-# Ingest URLs
+# Ingest URLs (auto-detects GitHub)
 app.ingest_urls(["https://github.com/owner/repo"])
 
-# Query
+# Query with full pipeline
 result = app.query("What is RAG?", mode="hybrid")
 print(result.answer)
 print(result.confidence)
 
-# Search only (no LLM)
+# Search only (no LLM generation)
 results = app.search("BM25 algorithm", mode="hybrid", top_k=10)
 
-# Interactive session
+# Simple query (minimal pipeline)
+answer = app.simple_query("What is RAG?", top_k=5)
+
+# Conversation support
 conversation_id = app.start_conversation()
 result1 = app.query("What is RAG?", conversation_id=conversation_id)
 result2 = app.query("Tell me more", conversation_id=conversation_id)
 
-# Clear index
+# System management
 app.clear_index()
-
-# Check health
 health = app.check_health()
+stats = app.get_stats()
 ```
 
-### Result Object
+### PipelineResult Object
 
 ```python
 @dataclass
 class PipelineResult:
     answer: str                    # Generated answer
-    sources: List[StoredDoc]       # Source documents
+    context: AgentContext          # Pipeline context
+    metrics: RunMetrics            # Performance metrics
+    success: bool                  # Execution status
     confidence: float              # Critic score (0-1)
-    metrics: Dict[str, Any]        # Performance metrics
-    plan: Optional[Dict]           # Planning agent output
-    sub_queries: List[str]         # Decomposed queries
-    citations: List[Citation]      # Source citations
-    verification: Optional[Dict]   # Fact verification result
+    retrieval_mode_used: str       # Actual mode used
+    retry_count: int               # Number of retries
+    tools_used: List[str]          # Tools invoked
+    
+    # Multi-hop reasoning
+    multihop_used: bool
+    multihop_hops: int
+    
+    # Fact verification
+    fact_verification_score: float
+    fact_verification_passed: bool
+    
+    # Citations
+    cited_answer: Optional[str]
+    citations: List[Dict]
+    sources: List[Dict]
+    audit_id: Optional[str]
 ```
 
 ---
@@ -1264,6 +905,12 @@ python tools/check_redis.py
 # Inspect index contents
 python tools/inspect_index.py
 
+# Validate quantization implementation
+python tools/validate_quantization.py
+
+# Calibrate int8 quantization ranges
+python tools/calibrate_int8_ranges.py --sample-size 100000 --output data/int8_ranges.npy
+
 # View system health
 python -m radiant health
 
@@ -1278,8 +925,14 @@ python -m radiant stats
 ```
 radiant-rag/
 ├── config.yaml                 # Configuration file
+├── config_quantization_example.yaml  # Quantization config example
 ├── README.md                   # This file
+├── BINARY_QUANTIZATION_README.md  # Quantization documentation
+├── CHANGES_SUMMARY.md          # Code changes summary
+├── AGENTS.md                   # Agent development guide
+├── NEW_CORPUS_GUIDE.md         # Adding new document sources
 ├── requirements.txt            # Python dependencies
+├── requirements-dev.txt        # Development dependencies
 ├── pyproject.toml              # Package configuration
 │
 ├── radiant/                    # Main package
@@ -1288,16 +941,32 @@ radiant-rag/
 │   ├── config.py               # Configuration loading
 │   │
 │   ├── agents/                 # Pipeline agents
+│   │   ├── base_agent.py       # BaseAgent ABC with metrics
+│   │   ├── agent_template.py   # Template for new agents
+│   │   ├── registry.py         # Agent registration
 │   │   ├── planning.py         # Query planning
 │   │   ├── decomposition.py    # Query decomposition
+│   │   ├── rewrite.py          # Query rewriting
+│   │   ├── expansion.py        # Query expansion
 │   │   ├── dense.py            # Dense retrieval
 │   │   ├── bm25.py             # BM25 retrieval
 │   │   ├── fusion.py           # RRF fusion
+│   │   ├── automerge.py        # Hierarchical merging
 │   │   ├── rerank.py           # Cross-encoder reranking
 │   │   ├── synthesis.py        # Answer generation
 │   │   ├── citation.py         # Citation tracking
+│   │   ├── critic.py           # Answer evaluation
+│   │   ├── context_eval.py     # Context evaluation
+│   │   ├── summarization.py    # Context summarization
+│   │   ├── multihop.py         # Multi-hop reasoning
 │   │   ├── fact_verification.py # Fact checking
-│   │   └── ...                 # Other agents
+│   │   ├── language_detection.py # Language detection
+│   │   ├── translation.py      # Translation
+│   │   ├── chunking.py         # Intelligent chunking
+│   │   ├── strategy_memory.py  # Strategy learning
+│   │   ├── web_search.py       # Web search
+│   │   ├── tools.py            # Calculator, code execution
+│   │   └── AGENTS.md           # Agent development guide
 │   │
 │   ├── ingestion/              # Document processing
 │   │   ├── processor.py        # Document processor
@@ -1307,12 +976,22 @@ radiant-rag/
 │   │   └── image_captioner.py  # VLM image captioning
 │   │
 │   ├── storage/                # Storage backends
+│   │   ├── base.py             # BaseVectorStore ABC
+│   │   ├── factory.py          # Storage backend factory
 │   │   ├── redis_store.py      # Redis vector store
-│   │   └── bm25_index.py       # Persistent BM25 index
+│   │   ├── chroma_store.py     # ChromaDB vector store
+│   │   ├── pgvector_store.py   # PostgreSQL pgvector store
+│   │   ├── bm25_index.py       # Persistent BM25 index
+│   │   └── quantization.py     # Binary quantization utilities
 │   │
 │   ├── llm/                    # LLM clients
 │   │   ├── client.py           # LLM API client
 │   │   └── local_models.py     # Local embedding/reranking
+│   │
+│   ├── utils/                  # Utilities
+│   │   ├── metrics.py          # Metrics collection
+│   │   ├── metrics_export.py   # Prometheus/OTel export
+│   │   └── conversation.py     # Conversation management
 │   │
 │   └── ui/                     # User interfaces
 │       ├── display.py          # Console output
@@ -1320,15 +999,25 @@ radiant-rag/
 │       └── reports/            # Report generation
 │
 ├── tools/                      # Diagnostic tools
-│   ├── check_redis.py
-│   └── inspect_index.py
+│   ├── check_redis.py          # Redis connectivity check
+│   ├── inspect_index.py        # Index inspection
+│   ├── validate_quantization.py # Quantization validation
+│   ├── validate_bugfix.py      # Bugfix validation
+│   └── calibrate_int8_ranges.py # Int8 calibration
 │
 ├── docs/                       # Documentation
-│   └── USER_MANUAL.md
-│   
+│   ├── USER_MANUAL.md          # Full user manual
+│   ├── AGENT_ARCHITECTURE.md   # Agent architecture docs
+│   ├── AGENTS_MD_USAGE.md      # AGENTS.md usage guide
+│   └── CHANGES_ORCHESTRATOR_UPDATE.md
 │
 └── tests/                      # Test suite
-    └── test_all.py
+    ├── test_all.py             # Comprehensive tests
+    ├── test_base_agent_lifecycle.py  # Agent lifecycle tests
+    ├── test_agents/            # Agent-specific tests
+    ├── test_storage/           # Storage tests
+    ├── test_ingestion/         # Ingestion tests
+    └── test_ui/                # UI tests
 ```
 
 ---
@@ -1347,6 +1036,8 @@ Contributions welcome! Please read the contributing guidelines first.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | 2025-12 | Initial release |
-| 1.1.0 | 2025-12 | Added GitHub crawler, code-aware chunking |
-| 1.2.0 | 2025-12 | Added multilingual support, fact verification |
+| 1.0.0 | 2024-12 | Initial release |
+| 1.1.0 | 2024-12 | Added GitHub crawler, code-aware chunking |
+| 1.2.0 | 2024-12 | Added multilingual support, fact verification |
+| 1.3.0 | 2025-01 | Added binary quantization, multiple storage backends |
+| 1.4.0 | 2025-01 | Added BaseAgent ABC, AgentResult pattern, metrics export |
