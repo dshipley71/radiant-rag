@@ -1,8 +1,8 @@
 # Radiant Agentic RAG
 ## User Manual
 
-**Version 1.0**  
-**December 2024**
+**Version 1.4**  
+**January 2025**
 
 ---
 
@@ -11,8 +11,8 @@
 | Field | Value |
 |-------|-------|
 | Document Title | Radiant Agentic RAG User Manual |
-| Version | 1.0 |
-| Release Date | December 2024 |
+| Version | 1.4 |
+| Release Date | January 2025 |
 | Target Audience | Software Developers, Data Scientists, AI Engineers |
 
 ---
@@ -23,12 +23,14 @@
 - [Part II: Installation & Setup](#part-ii-installation--setup)
 - [Part III: Core Concepts](#part-iii-core-concepts)
 - [Part IV: Document Ingestion](#part-iv-document-ingestion)
-- [Part V: Agents Reference](#part-v-agents-reference)
-- [Part VI: Storage & Indexing](#part-vi-storage--indexing)
-- [Part VII: User Interfaces](#part-vii-user-interfaces)
-- [Part VIII: Advanced Topics](#part-viii-advanced-topics)
-- [Part IX: API Reference](#part-ix-api-reference)
-- [Part X: Troubleshooting](#part-x-troubleshooting)
+- [Part V: Storage Backends](#part-v-storage-backends)
+- [Part VI: Binary Quantization](#part-vi-binary-quantization)
+- [Part VII: Agents Reference](#part-vii-agents-reference)
+- [Part VIII: User Interfaces](#part-viii-user-interfaces)
+- [Part IX: Metrics & Monitoring](#part-ix-metrics--monitoring)
+- [Part X: Advanced Topics](#part-x-advanced-topics)
+- [Part XI: API Reference](#part-xi-api-reference)
+- [Part XII: Troubleshooting](#part-xii-troubleshooting)
 - [Appendices](#appendices)
 
 ---
@@ -43,24 +45,29 @@ Radiant RAG is an enterprise-grade, agentic Retrieval-Augmented Generation (RAG)
 
 **Core Design Principles:**
 
-1. **Agentic Architecture**: Each component is an autonomous agent with a specific responsibility
+1. **Agentic Architecture**: Each component is an autonomous agent with standardized interfaces (BaseAgent ABC)
 2. **Dynamic Strategy Selection**: The system adapts its retrieval strategy based on query characteristics
 3. **Self-Correction**: Built-in critic and verification agents detect and correct errors
 4. **Enterprise Compliance**: Citation tracking and audit trails support regulatory requirements
 5. **Multilingual Support**: Automatic language detection and translation for multilingual corpora
+6. **Performance Optimization**: Binary quantization for 10-20x faster retrieval
+7. **Flexible Storage**: Support for Redis, ChromaDB, and PostgreSQL pgvector
 
 ### 1.2 Key Features
 
-| Category | Agents | Purpose |
+| Category | Agents/Features | Purpose |
 |----------|--------|---------|
 | Query Processing | Planning, Decomposition, Rewrite, Expansion | Understand and optimize queries |
 | Retrieval | Dense, BM25, Web Search | Fetch relevant documents |
+| Storage | Redis, Chroma, PgVector | Flexible vector storage |
+| Quantization | Binary, Int8 | 10-20x faster retrieval |
 | Fusion | RRF | Combine results from multiple retrievers |
-| Post-Retrieval | AutoMerge, Rerank, Context Eval | Refine and validate context |
+| Post-Retrieval | AutoMerge, Rerank, Context Eval, Summarization | Refine and validate context |
 | Generation | Synthesis, Critic | Generate and evaluate answers |
 | Verification | Fact Verification, Citation | Ensure accuracy and attribution |
 | Multilingual | Language Detection, Translation | Support multiple languages |
 | Tools | Calculator, Code Execution | Extended capabilities |
+| Monitoring | Prometheus, OpenTelemetry | Metrics and tracing |
 
 ### 1.3 System Requirements
 
@@ -68,7 +75,7 @@ Radiant RAG is an enterprise-grade, agentic Retrieval-Augmented Generation (RAG)
 |-----------|---------|-------------|
 | Python | 3.10+ | 3.11 |
 | RAM | 8 GB | 32+ GB |
-| Redis Stack | 7.2+ | Latest |
+| Storage Backend | Redis Stack 7.2+ | Latest |
 | GPU | None | NVIDIA 8+ GB VRAM |
 
 ### 1.4 Architecture at a Glance
@@ -129,7 +136,9 @@ python -m venv venv
 source venv/bin/activate
 ```
 
-### 2.2 Redis Stack
+### 2.2 Storage Backend Setup
+
+#### Redis Stack (Default)
 
 ```bash
 # Docker (Recommended)
@@ -141,6 +150,20 @@ docker run -d \
 
 # Verify
 docker exec redis-stack redis-cli ping
+```
+
+#### ChromaDB (Alternative)
+
+```bash
+pip install chromadb
+```
+
+#### PostgreSQL with pgvector (Alternative)
+
+```bash
+# Install PostgreSQL with pgvector extension
+# Then install Python driver
+pip install psycopg2-binary
 ```
 
 ### 2.3 Installing from Source
@@ -155,7 +178,7 @@ pip install -e .
 
 ```bash
 python -c "from radiant.app import RadiantRAG; print('OK')"
-python -m radiant --health-check
+python -m radiant health
 ```
 
 ## Chapter 3: Configuration
@@ -173,6 +196,10 @@ local_models:
   embed_model_name: "sentence-transformers/all-MiniLM-L12-v2"
   cross_encoder_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
   device: "auto"
+  embedding_dimension: 384
+
+storage:
+  backend: redis  # Options: redis, chroma, pgvector
 
 redis:
   url: "redis://localhost:6379/0"
@@ -184,7 +211,7 @@ redis:
 ```bash
 export RADIANT_OLLAMA_CHAT_MODEL="llama3:70b"
 export RADIANT_REDIS_URL="redis://redis-server:6379/0"
-export RADIANT_RETRIEVAL_TOP_K="20"
+export RADIANT_RETRIEVAL_DENSE_TOP_K="20"
 ```
 
 ---
@@ -220,18 +247,25 @@ Query → [Planning Agent decides strategy]
 
 ### 4.3 Agent Communication
 
+All agents now use the standardized `AgentResult` wrapper:
+
 ```python
+from radiant.agents import AgentResult, AgentStatus, AgentMetrics
+
 @dataclass
-class AgentContext:
-    query: str
-    processed_queries: List[str]
-    retrieval_mode: str
-    documents: List[StoredDoc]
-    context: str
-    answer: str
-    confidence: float
-    citations: List[Citation]
-    metrics: Dict[str, Any]
+class AgentResult(Generic[T]):
+    data: T                           # The actual result data
+    success: bool = True              # Execution status
+    status: AgentStatus = AgentStatus.SUCCESS
+    error: Optional[str] = None       # Error message if failed
+    warnings: List[str] = []          # Warning messages
+    metrics: Optional[AgentMetrics] = None  # Execution metrics
+
+# Usage
+result = agent.run(query="test")
+if result.success:
+    data = result.data
+    print(f"Duration: {result.metrics.duration_ms}ms")
 ```
 
 ## Chapter 5: Data Model
@@ -279,6 +313,7 @@ class StoredDoc:
 | Markdown | .md | Preserves structure |
 | HTML | .html | Strips tags |
 | Images | .png, .jpg | VLM captioning |
+| Code | .py, .js, .ts, etc. | Code-aware chunking |
 
 ### 6.2 DocumentProcessor
 
@@ -287,8 +322,7 @@ from radiant.ingestion import DocumentProcessor
 
 processor = DocumentProcessor(
     cleaning_config=config.unstructured_cleaning,
-    chunk_size=512,
-    chunk_overlap=50,
+    image_captioner=captioner,
 )
 
 chunks = processor.process_file("/path/to/document.pdf")
@@ -305,1234 +339,622 @@ processor = TranslatingDocumentProcessor(
     language_detection_agent=lang_detector,
     translation_agent=translator,
     canonical_language="en",
+    translate_at_ingestion=True,
     preserve_original=True,
 )
 
-# Process multilingual document
-chunks = processor.process_file("/path/to/chinese_doc.pdf")
+chunks = processor.process_file("/path/to/french_document.pdf")
 ```
 
-### 6.4 Batch Ingestion
+### 6.4 Code-Aware Chunking
+
+```python
+from radiant.ingestion.code_chunker import CodeChunker
+
+chunker = CodeChunker(
+    max_chunk_size=2000,
+    min_chunk_size=100,
+    include_imports_context=True,
+)
+
+code_chunks = chunker.chunk_file(content, "main.py")
+for chunk in code_chunks:
+    print(f"Block: {chunk.block_type} - {chunk.block_name}")
+    print(f"Lines: {chunk.start_line}-{chunk.end_line}")
+```
+
+---
+
+# Part V: Storage Backends
+
+## Chapter 7: Storage Backend Selection
+
+### 7.1 Backend Comparison
+
+| Backend | Use Case | Pros | Cons |
+|---------|----------|------|------|
+| **Redis** | Production, low-latency | Fast, feature-rich | Requires Redis Stack |
+| **Chroma** | Development, testing | Easy setup, embedded | Less scalable |
+| **PgVector** | Enterprise, PostgreSQL | Mature, ACID | More setup |
+
+### 7.2 Redis Configuration
+
+```yaml
+storage:
+  backend: redis
+
+redis:
+  url: "redis://localhost:6379/0"
+  key_prefix: "radiant"
+  doc_ns: "doc"
+  embed_ns: "emb"
+  vector_index:
+    name: "radiant_vectors"
+    hnsw_m: 16
+    hnsw_ef_construction: 200
+    hnsw_ef_runtime: 100
+    distance_metric: "COSINE"
+```
+
+### 7.3 Chroma Configuration
+
+```yaml
+storage:
+  backend: chroma
+
+chroma:
+  persist_directory: "./data/chroma_db"
+  collection_name: "radiant_docs"
+  distance_fn: "cosine"
+  embedding_dimension: 384
+```
+
+### 7.4 PgVector Configuration
+
+```yaml
+storage:
+  backend: pgvector
+
+pgvector:
+  connection_string: "postgresql://user:pass@localhost:5432/radiant"
+  leaf_table_name: "haystack_leaves"
+  parent_table_name: "haystack_parents"
+  vector_function: "cosine_similarity"
+  search_strategy: "hnsw"
+```
+
+### 7.5 Storage Factory
+
+```python
+from radiant.storage import create_vector_store, get_available_backends
+
+# Check available backends
+backends = get_available_backends()
+print(backends)
+# {'redis': {'available': True}, 'chroma': {'available': True}, 'pgvector': {'available': False}}
+
+# Create store based on config
+store = create_vector_store(config)
+```
+
+---
+
+# Part VI: Binary Quantization
+
+## Chapter 8: Quantization Overview
+
+### 8.1 Performance Benefits
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Memory | 1,536 MB | 432 MB | **3.5x less** |
+| Retrieval Speed | 50-100ms | 5-10ms | **10-20x faster** |
+| Accuracy | 100% | 95-96% | **-4%** |
+
+### 8.2 How It Works
+
+```
+Query (float32)
+    ↓
+[Stage 1] Binary Search
+  • Quantize query to binary (1 bit per dimension)
+  • Search with Hamming distance
+  • Retrieve 4× candidate documents
+  • Ultra-fast: 2 CPU cycles per comparison
+    ↓
+[Stage 2] Precision Rescoring
+  • Load int8/float32 embeddings for candidates
+  • Recalculate similarity scores
+  • Return top-k results
+  • High accuracy: 95-96% retention
+    ↓
+Final Results
+```
+
+### 8.3 Configuration
+
+```yaml
+redis:  # or chroma, or pgvector
+  quantization:
+    enabled: true
+    precision: "both"  # "binary", "int8", or "both"
+    rescore_multiplier: 4.0
+    use_rescoring: true
+    int8_ranges_file: "data/int8_ranges.npy"
+```
+
+### 8.4 Calibration
 
 ```bash
-python -m radiant ingest /path/to/docs/ --recursive --batch-size 10
+# Generate int8 calibration ranges
+python tools/calibrate_int8_ranges.py \
+    --sample-size 100000 \
+    --output data/int8_ranges.npy \
+    --config config.yaml
 ```
 
----
+### 8.5 API Usage
 
-# Part V: Agents Reference
-
-## Chapter 8: PlanningAgent
-
-### Purpose
-Analyzes incoming queries and determines optimal retrieval strategy.
-
-### Configuration
-```yaml
-agentic:
-  use_planning: true
-  min_confidence: 0.7
-```
-
-### Input/Output
-- **Input**: Query string, conversation history
-- **Output**: RetrievalPlan (mode, use_decomposition, confidence_threshold)
-
-### Decision Logic
-| Query Type | Retrieval Mode |
-|------------|----------------|
-| Conceptual/semantic | Dense |
-| Exact terms/code | Sparse (BM25) |
-| Technical/mixed | Hybrid |
-| Current events | Web search |
-
-### Usage Example
-```
-Query: "Compare Python and Java performance"
-Plan:
-  mode: hybrid
-  use_decomposition: true
-  reasoning: "Complex comparison requiring multiple perspectives"
-```
-
----
-
-## Chapter 9: QueryDecompositionAgent
-
-### Purpose
-Breaks complex queries into simpler sub-queries.
-
-### Configuration
-```yaml
-query:
-  max_decomposed_queries: 5
-```
-
-### Usage Example
-```
-Input: "What is Python and how does it compare to Java?"
-Output:
-  - "What is Python?"
-  - "How does Python compare to Java?"
-```
-
----
-
-## Chapter 10: QueryRewriteAgent
-
-### Purpose
-Reformulates queries to improve retrieval effectiveness.
-
-### Techniques
-| Technique | Example |
-|-----------|---------|
-| Clarification | "it" → "the algorithm" |
-| Contextualization | "more details" → "more details about neural networks" |
-
----
-
-## Chapter 11: QueryExpansionAgent
-
-### Purpose
-Enriches queries with synonyms and related terms.
-
-### Configuration
-```yaml
-query:
-  max_expansions: 12
-```
-
-### Usage Example
-```
-Query: "ML model training"
-Expansions: machine learning, neural network, deep learning, optimization
-```
-
----
-
-## Chapter 12: DenseRetrievalAgent
-
-### Purpose
-Semantic similarity search using vector embeddings.
-
-### Configuration
-```yaml
-retrieval:
-  top_k: 10
-  min_similarity: 0.5
-
-local_models:
-  embed_model_name: "sentence-transformers/all-MiniLM-L12-v2"
-```
-
-### Recommended Models
-| Model | Dimensions | Use Case |
-|-------|------------|----------|
-| all-MiniLM-L12-v2 | 384 | General, fast |
-| all-mpnet-base-v2 | 768 | Higher quality |
-| multilingual-e5-large | 1024 | Multilingual |
-
----
-
-## Chapter 13: BM25RetrievalAgent
-
-### Purpose
-Keyword-based sparse retrieval using BM25 algorithm.
-
-### Configuration
-```yaml
-bm25:
-  k1: 1.5
-  b: 0.75
-  top_k: 10
-```
-
-### Best For
-- Code identifiers
-- Proper nouns
-- Technical terms
-- Exact phrases
-
----
-
-## Chapter 14: WebSearchAgent
-
-### Purpose
-Real-time web searches for current information.
-
-### Configuration
-```yaml
-web_search:
-  enabled: true
-  provider: "duckduckgo"
-  max_results: 10
-  trigger_keywords:
-    - "latest"
-    - "recent"
-    - "today"
-```
-
----
-
-## Chapter 15: RRFAgent
-
-### Purpose
-Combines results from multiple retrievers using Reciprocal Rank Fusion.
-
-### Formula
-```
-RRF_score(d) = Σ (weight_i / (k + rank_i(d)))
-```
-
-### Configuration
-```yaml
-pipeline:
-  use_rrf: true
-rrf_k: 60
-```
-
----
-
-## Chapter 16: HierarchicalAutoMergingAgent
-
-### Purpose
-Reconstructs parent documents from retrieved child chunks.
-
-### Configuration
-```yaml
-automerge:
-  enabled: true
-  threshold: 2
-  max_parent_size: 10000
-```
-
----
-
-## Chapter 17: CrossEncoderRerankingAgent
-
-### Purpose
-Neural reranking for precision using cross-encoder models.
-
-### Configuration
-```yaml
-rerank:
-  enabled: true
-  top_k: 20
-  model_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
-```
-
----
-
-## Chapter 18: ContextEvaluationAgent
-
-### Purpose
-Assesses context quality before generation.
-
-### Configuration
-```yaml
-context_evaluation:
-  enabled: true
-  min_relevance_score: 0.6
-  min_coverage_score: 0.5
-```
-
-### Output
 ```python
-@dataclass
-class ContextEvaluation:
-    relevance_score: float
-    coverage_score: float
-    coherence_score: float
-    is_sufficient: bool
-    missing_aspects: List[str]
-```
-
----
-
-## Chapter 19: SummarizationAgent
-
-### Purpose
-Compresses context to fit LLM token limits.
-
-### Configuration
-```yaml
-summarization:
-  enabled: true
-  max_summary_length: 4000
-  strategy: "abstractive"
-```
-
-### Strategies
-| Strategy | Description |
-|----------|-------------|
-| extractive | Select key sentences |
-| abstractive | Generate new summary |
-| hierarchical | Multi-level compression |
-
----
-
-## Chapter 20: IntelligentChunkingAgent
-
-### Purpose
-Semantic document chunking using LLM.
-
-### Configuration
-```yaml
-chunking:
-  enabled: true
-  method: "llm"
-  target_chunk_size: 1000
-```
-
-### Document Types
-| Type | Detection | Strategy |
-|------|-----------|----------|
-| Code | Extension, syntax | Function boundaries |
-| Prose | Paragraphs | Section boundaries |
-| Markdown | Headers | Header-based |
-
----
-
-## Chapter 21: AnswerSynthesisAgent
-
-### Purpose
-Generates answers from retrieved context.
-
-### Configuration
-```yaml
-synthesis:
-  max_tokens: 1024
-  temperature: 0.7
-  include_sources: true
-```
-
----
-
-## Chapter 22: CriticAgent
-
-### Purpose
-Evaluates answer quality and triggers regeneration if needed.
-
-### Configuration
-```yaml
-critic:
-  enabled: true
-  min_confidence: 0.7
-  max_retries: 2
-```
-
-### Output
-```python
-@dataclass
-class CriticEvaluation:
-    confidence: float
-    accuracy_score: float
-    completeness_score: float
-    should_retry: bool
-    feedback: str
-```
-
----
-
-## Chapter 23: FactVerificationAgent
-
-### Purpose
-Verifies each claim against source documents.
-
-### Configuration
-```yaml
-fact_verification:
-  enabled: true
-  min_support_confidence: 0.6
-  generate_corrections: true
-```
-
-### Verification Status
-| Status | Description | Score |
-|--------|-------------|-------|
-| SUPPORTED | Fully backed | 1.0 |
-| PARTIALLY_SUPPORTED | Some evidence | 0.7 |
-| NOT_SUPPORTED | No evidence | 0.3 |
-| CONTRADICTED | Evidence contradicts | 0.0 |
-
----
-
-## Chapter 24: CitationTrackingAgent
-
-### Purpose
-Adds source attribution and audit trails.
-
-### Configuration
-```yaml
-citation:
-  enabled: true
-  citation_style: "inline"
-  generate_bibliography: true
-  generate_audit_trail: true
-```
-
-### Citation Styles
-| Style | Format |
-|-------|--------|
-| inline | [1], [2] |
-| footnote | ^[1] |
-| academic | (Author Year) |
-| hyperlink | [text](url) |
-
----
-
-## Chapter 25: MultiHopReasoningAgent
-
-### Purpose
-Handles complex queries requiring multiple reasoning steps.
-
-### Configuration
-```yaml
-multihop:
-  enabled: true
-  max_hops: 3
-  docs_per_hop: 5
-```
-
-### Example
-```
-Query: "Who is the CEO of the company that makes iPhone?"
-
-Step 1: "Which company makes iPhone?" → Apple Inc.
-Step 2: "Who is the CEO of Apple Inc.?" → Tim Cook
-
-Final Answer: Tim Cook
-```
-
----
-
-## Chapter 26: RetrievalStrategyMemory
-
-### Purpose
-Learns optimal retrieval strategies from outcomes.
-
-### Configuration
-```yaml
-agentic:
-  use_strategy_memory: true
-  strategy_memory_size: 1000
-```
-
----
-
-## Chapter 27: LanguageDetectionAgent
-
-### Purpose
-Identifies text language using FastText with LLM fallback.
-
-### Configuration
-```yaml
-language_detection:
-  enabled: true
-  method: "fast"
-  min_confidence: 0.7
-  use_llm_fallback: true
-```
-
-### Output
-```python
-@dataclass
-class LanguageDetection:
-    language_code: str      # "en", "zh", "fr"
-    language_name: str      # "English", "Chinese"
-    confidence: float       # 0.0-1.0
-    method: str            # "fast", "llm"
-```
-
-### Supported Languages
-176 languages via FastText including: English, Chinese, Spanish, French, German, Japanese, Korean, Arabic, Hindi, Portuguese, Russian, and many more.
-
----
-
-## Chapter 28: TranslationAgent
-
-### Purpose
-Translates documents to canonical language using LLM.
-
-### Configuration
-```yaml
-translation:
-  enabled: true
-  method: "llm"
-  canonical_language: "en"
-  max_chars_per_llm_call: 4000
-  preserve_original: true
-```
-
-### Output
-```python
-@dataclass
-class TranslationResult:
-    original_text: str
-    translated_text: str
-    source_language: str
-    target_language: str
-    was_translated: bool
-```
-
----
-
-## Chapter 29-31: Tool Agents
-
-### ToolRegistry
-Manages available tools (calculator, code execution).
-
-### CalculatorTool
-```python
-result = calculator.execute("sqrt(144) + 15")
-# output: "27.0"
-```
-
-### CodeExecutionTool
-```python
-code = """
-import statistics
-values = [23, 45, 67, 89]
-print(f"Mean: {statistics.mean(values):.2f}")
-"""
-result = code_tool.execute(code)
-```
-
----
-
-# Part VI: Storage & Indexing
-
-## Chapter 32: Redis Vector Store
-
-### Index Schema
-```python
-schema = [
-    TextField("content"),
-    TagField("doc_level"),
-    TagField("parent_id"),
-    TagField("language_code"),
-    VectorField("embedding", "HNSW", {...}),
-]
-```
-
-### HNSW Parameters
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| M | 16 | Max connections per node |
-| EF_CONSTRUCTION | 200 | Build-time search width |
-| EF_RUNTIME | 100 | Query-time search width |
-
-### Vector Search with Language Filter
-```python
+# Automatic (when quantization enabled)
 results = store.retrieve_by_embedding(
-    query_embedding=query_vec,
+    query_embedding=embedding,
+    top_k=10
+)
+
+# Explicit quantized retrieval
+results = store.retrieve_by_embedding_quantized(
+    query_embedding=embedding,
     top_k=10,
-    language_filter="zh",  # Only Chinese documents
+    rescore_multiplier=4.0,
+    use_rescoring=True
 )
 ```
 
 ---
 
-# Part VII: User Interfaces
+# Part VII: Agents Reference
 
-## Chapter 35: Command Line Interface
+## Chapter 9: Agent Hierarchy
 
-```bash
-# Ingest documents
-python -m radiant ingest /path/to/docs/ -r
+### 9.1 BaseAgent Architecture
 
-# Query
-python -m radiant query "What is machine learning?"
-
-# Search
-python -m radiant search "Python tutorial" --top-k 5
-
-# Stats
-python -m radiant stats
-
-# Clear index
-python -m radiant clear --confirm
+```
+BaseAgent (Abstract)
+├── LLMAgent (requires LLM client)
+│   ├── PlanningAgent
+│   ├── AnswerSynthesisAgent
+│   ├── CriticAgent
+│   ├── QueryDecompositionAgent
+│   ├── QueryRewriteAgent
+│   ├── QueryExpansionAgent
+│   └── WebSearchAgent
+│
+├── RetrievalAgent (requires vector store)
+│   └── DenseRetrievalAgent
+│
+└── BaseAgent (direct inheritance)
+    ├── BM25RetrievalAgent
+    ├── RRFAgent
+    ├── HierarchicalAutoMergingAgent
+    ├── CrossEncoderRerankingAgent
+    └── MultiHopReasoningAgent
 ```
 
-## Chapter 36: Terminal User Interface
+### 9.2 Agent Categories
 
-```bash
-python -m radiant tui
-```
-
-| Key | Action |
-|-----|--------|
-| Tab | Switch panels |
-| Enter | Submit query |
-| ↑/↓ | Scroll results |
-| Ctrl+C | Exit |
-
----
-
-# Part VIII: Advanced Topics
-
-## Chapter 38: Pipeline Customization
-
-### Enabling/Disabling Agents
-```yaml
-pipeline:
-  use_planning: true
-  use_decomposition: true
-  use_rewrite: true
-  use_critic: true
-
-context_evaluation:
-  enabled: true
-
-fact_verification:
-  enabled: false
-```
-
-### Custom Agent Development
 ```python
-class CustomAgent:
-    def __init__(self, llm, config):
-        self._llm = llm
+class AgentCategory(Enum):
+    PLANNING = "planning"           # Query analysis
+    QUERY_PROCESSING = "query_processing"  # Decomposition, rewrite
+    RETRIEVAL = "retrieval"         # Dense, sparse, web
+    POST_RETRIEVAL = "post_retrieval"      # Fusion, reranking
+    GENERATION = "generation"       # Answer synthesis
+    EVALUATION = "evaluation"       # Critic, verification
+    TOOL = "tool"                   # Calculator, code
+    UTILITY = "utility"             # General purpose
+```
+
+## Chapter 10: Creating Custom Agents
+
+### 10.1 Agent Template
+
+```python
+from radiant.agents.base_agent import (
+    BaseAgent, LLMAgent, RetrievalAgent,
+    AgentCategory, AgentResult, AgentMetrics
+)
+
+class MyCustomAgent(LLMAgent):
+    def __init__(self, llm, config, enabled=True):
+        super().__init__(llm=llm, enabled=enabled)
         self._config = config
     
-    def run(self, context: AgentContext) -> AgentContext:
-        # Process and modify context
-        return context
+    @property
+    def name(self) -> str:
+        return "MyCustomAgent"
+    
+    @property
+    def category(self) -> AgentCategory:
+        return AgentCategory.UTILITY
+    
+    @property
+    def description(self) -> str:
+        return "Custom agent for specific task"
+    
+    def _execute(self, query: str, **kwargs) -> str:
+        """Core execution logic."""
+        result = self._chat(
+            system="You are a helpful assistant.",
+            user=query,
+        )
+        return result
+    
+    def _on_error(self, error, metrics, **kwargs):
+        """Fallback behavior on error."""
+        return "Default fallback response"
 ```
 
-## Chapter 39: Performance Optimization
+### 10.2 Agent Metrics
 
-### Batch Processing
 ```python
-app.ingest(paths, batch_size=50)
+def _after_execute(self, result, metrics, **kwargs):
+    """Add custom metrics after execution."""
+    metrics.items_processed = len(result)
+    metrics.confidence = 0.85
+    metrics.custom["cache_hit"] = True
+    return result
 ```
 
-### GPU Acceleration
-```yaml
-local_models:
-  device: "cuda"
-vlm:
-  load_in_4bit: true
-```
+## Chapter 11: Core Agents Reference
 
-## Chapter 41: Multilingual Deployment
+### 11.1 PlanningAgent
 
-### Translation Workflow
-```
-Document (Chinese)
-    → Detect: "zh"
-    → Translate to English
-    → Embed English
-    → Store: {content: English, original: Chinese}
-```
+Analyzes queries and selects retrieval strategy.
 
-### Language Filtering
 ```python
-# Search only Chinese source documents
-results = store.retrieve_by_embedding(
-    query_embedding=query_vec,
-    language_filter="zh",
+from radiant.agents import PlanningAgent
+
+agent = PlanningAgent(llm=llm, config=config.agentic)
+result = agent.run(query="Compare Python and JavaScript")
+
+if result.success:
+    plan = result.data
+    print(f"Mode: {plan['retrieval_mode']}")
+    print(f"Decompose: {plan['should_decompose']}")
+    print(f"Expand: {plan['should_expand']}")
+```
+
+### 11.2 Retrieval Agents
+
+```python
+from radiant.agents import DenseRetrievalAgent, BM25RetrievalAgent, RRFAgent
+
+# Dense retrieval
+dense_agent = DenseRetrievalAgent(store, local_models, config.retrieval)
+dense_result = dense_agent.run(query=query, top_k=10)
+
+# BM25 retrieval
+bm25_agent = BM25RetrievalAgent(bm25_index, config.retrieval)
+bm25_result = bm25_agent.run(query=query, top_k=10)
+
+# RRF fusion
+rrf_agent = RRFAgent(config.retrieval)
+fused_result = rrf_agent.run(
+    runs=[dense_result.data, bm25_result.data],
+    top_k=15
+)
+```
+
+### 11.3 Post-Retrieval Agents
+
+```python
+from radiant.agents import (
+    HierarchicalAutoMergingAgent,
+    CrossEncoderRerankingAgent,
+    ContextEvaluationAgent,
+    SummarizationAgent,
+    MultiHopReasoningAgent,
+)
+
+# Auto-merge child chunks to parents
+automerge_agent = HierarchicalAutoMergingAgent(store, config.automerge)
+merged = automerge_agent.run(candidates=fused_docs, top_k=10)
+
+# Cross-encoder reranking
+rerank_agent = CrossEncoderRerankingAgent(local_models, config.rerank)
+reranked = rerank_agent.run(query=query, docs=merged.data, top_k=8)
+
+# Context evaluation
+context_agent = ContextEvaluationAgent(llm, config.context_evaluation)
+evaluation = context_agent.run(query=query, documents=reranked.data)
+
+# Multi-hop reasoning
+multihop_agent = MultiHopReasoningAgent(llm, store, local_models, config.multihop)
+if multihop_agent.requires_multihop(query):
+    reasoning = multihop_agent.run(query=query, initial_context=reranked.data)
+```
+
+### 11.4 Generation Agents
+
+```python
+from radiant.agents import AnswerSynthesisAgent, CriticAgent
+
+# Answer synthesis
+synthesis_agent = AnswerSynthesisAgent(llm, config.synthesis)
+answer = synthesis_agent.run(
+    query=query,
+    docs=context_docs,
+    conversation_history=""
+)
+
+# Critic evaluation
+critic_agent = CriticAgent(llm, config.critic)
+evaluation = critic_agent.run(
+    query=query,
+    answer=answer.data,
+    context_docs=context_docs,
+    is_retry=False
+)
+```
+
+### 11.5 Verification Agents
+
+```python
+from radiant.agents import FactVerificationAgent, CitationTrackingAgent
+
+# Fact verification
+fact_agent = FactVerificationAgent(llm, config.fact_verification)
+verification = fact_agent.run(
+    answer=answer,
+    context_documents=context_docs
+)
+
+# Citation tracking
+citation_agent = CitationTrackingAgent(llm, config.citation)
+cited_answer = citation_agent.run(
+    answer=answer,
+    query=query,
+    source_documents=context_docs
 )
 ```
 
 ---
 
-# Part IX: API Reference
+# Part VIII: User Interfaces
 
-## Chapter 42: RadiantRAG Class
+## Chapter 12: CLI Interface
 
-```python
-from radiant.app import RadiantRAG
+### 12.1 Command Overview
 
-app = RadiantRAG(config_path="/path/to/config.yaml")
+```bash
+python -m radiant <command> [options]
 
-# Ingest
-stats = app.ingest(paths=["/docs/"], recursive=True)
-
-# Query
-result = app.query("What is machine learning?")
-
-# Search
-docs = app.search("Python", top_k=10)
-
-# Stats
-stats = app.get_stats()
+Commands:
+  ingest       Ingest documents from files, directories, or URLs
+  query        Query the RAG system with full pipeline
+  search       Search documents (retrieval only, no LLM)
+  interactive  Start interactive query mode
+  stats        Display system statistics
+  health       Check system health
+  clear        Clear all indexed documents
+  rebuild-bm25 Rebuild BM25 index from store
 ```
 
-## Chapter 43: PipelineResult
+### 12.2 Interactive Mode
+
+```bash
+# Standard interactive mode
+python -m radiant interactive
+
+# TUI mode with rich interface
+python -m radiant interactive --tui
+```
+
+## Chapter 13: Python API
+
+### 13.1 RadiantRAG Application
+
+```python
+from radiant.app import RadiantRAG, create_app
+
+# Create application
+app = create_app("config.yaml")
+
+# Or with custom config
+app = RadiantRAG(config=my_config)
+
+# Ingest documents
+stats = app.ingest_documents(
+    paths=["./docs/"],
+    use_hierarchical=True,
+    child_chunk_size=512,
+    child_chunk_overlap=50,
+)
+
+# Query with full pipeline
+result = app.query(
+    query="What is RAG?",
+    retrieval_mode="hybrid",
+    show_result=True,
+)
+print(result.answer)
+print(f"Confidence: {result.confidence}")
+
+# Search only (no LLM)
+results = app.search("BM25 algorithm", mode="hybrid", top_k=10)
+
+# Simple query (minimal pipeline)
+answer = app.simple_query("What is RAG?", top_k=5)
+```
+
+---
+
+# Part IX: Metrics & Monitoring
+
+## Chapter 14: Metrics Collection
+
+### 14.1 AgentMetrics
+
+Every agent execution collects metrics:
 
 ```python
 @dataclass
-class PipelineResult:
-    query: str
-    answer: str
+class AgentMetrics:
+    agent_name: str
+    agent_category: str
+    run_id: str
+    correlation_id: str
+    
+    # Timing
+    start_time: float
+    end_time: float
+    duration_ms: float
+    
+    # Status
+    status: AgentStatus
+    error_message: Optional[str]
+    
+    # Counters
+    items_processed: int
+    items_returned: int
+    llm_calls: int
+    retrieval_calls: int
+    
+    # Quality
     confidence: float
-    documents: List[StoredDoc]
-    cited_answer: Optional[str]
-    citations: List[Citation]
-    fact_verification_score: Optional[float]
-    total_latency_ms: float
-    metrics: Dict[str, Any]
+    
+    # Custom metrics
+    custom: Dict[str, Any]
+```
+
+### 14.2 Prometheus Export
+
+```python
+from radiant.utils.metrics_export import PrometheusMetricsExporter
+
+exporter = PrometheusMetricsExporter(
+    namespace="radiant",
+    subsystem="agent",
+    enable_histograms=True,
+)
+
+# Register agents
+exporter.register_agent(planning_agent)
+exporter.register_agent(retrieval_agent)
+
+# Record executions
+result = agent.run(query="test")
+exporter.record_execution(result)
+
+# Get metrics for endpoint
+metrics_output = exporter.get_metrics_output()
+```
+
+### 14.3 OpenTelemetry Export
+
+```python
+from radiant.utils.metrics_export import OpenTelemetryExporter
+
+exporter = OpenTelemetryExporter(
+    service_name="radiant-rag",
+    endpoint="http://localhost:4317",
+)
+
+# Trace agent execution
+with exporter.trace_agent(agent, query="test"):
+    result = agent.run(query="test")
+    exporter.record_result(result)
+```
+
+### 14.4 Unified Collector
+
+```python
+from radiant.utils.metrics_export import MetricsCollector
+
+collector = MetricsCollector.create(
+    prometheus_enabled=True,
+    prometheus_namespace="radiant",
+    otel_enabled=True,
+    otel_service_name="radiant-rag",
+    otel_endpoint="http://localhost:4317",
+)
+
+# Record all executions
+result = agent.run(query="test")
+collector.record(result)
+
+# Get Prometheus output
+print(collector.prometheus_output())
 ```
 
 ---
 
-# Part X: Troubleshooting
+# Part X: Advanced Topics
 
-## Chapter 46: Common Issues
+## Chapter 15: Strategy Memory
 
-| Issue | Solution |
-|-------|----------|
-| Redis connection refused | Check Redis is running: `docker ps` |
-| LLM timeout | Increase `ollama.timeout` |
-| CUDA out of memory | Enable `vlm.load_in_4bit: true` |
-| fast-langdetect not available | `pip install fast-langdetect` |
-
-## Chapter 47: Debugging
-
-```yaml
-logging:
-  level: "DEBUG"
-  file: "radiant.log"
-```
-
-```bash
-grep "ERROR" radiant.log
-grep "Agent" radiant.log
-```
-
----
-
-# Appendices
-
-## Appendix A: Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| RADIANT_OLLAMA_OPENAI_BASE_URL | LLM endpoint |
-| RADIANT_OLLAMA_CHAT_MODEL | Model name |
-| RADIANT_REDIS_URL | Redis connection |
-| RADIANT_RETRIEVAL_TOP_K | Results count |
-| RADIANT_PIPELINE_USE_CRITIC | Enable critic |
-| RADIANT_TRANSLATION_CANONICAL_LANGUAGE | Target language |
-
-## Appendix B: Language Codes
-
-| Code | Language | Code | Language |
-|------|----------|------|----------|
-| en | English | ja | Japanese |
-| zh | Chinese | ko | Korean |
-| es | Spanish | ar | Arabic |
-| fr | French | hi | Hindi |
-| de | German | pt | Portuguese |
-| it | Italian | ru | Russian |
-
-## Appendix C: Glossary
-
-| Term | Definition |
-|------|------------|
-| Agent | Autonomous component performing specific task |
-| Agentic RAG | RAG with autonomous decision-making agents |
-| BM25 | Probabilistic keyword ranking function |
-| Canonical Language | Target language for indexing |
-| Cross-Encoder | Neural model for query-document scoring |
-| Dense Retrieval | Semantic vector similarity search |
-| Embedding | Dense vector representation of text |
-| HNSW | Hierarchical Navigable Small World algorithm |
-| Multi-Hop | Reasoning requiring multiple evidence steps |
-| RRF | Reciprocal Rank Fusion |
-| Sparse Retrieval | Keyword-based search |
-
----
-
-*Radiant Agentic RAG User Manual v1.0 | December 2024*
-
----
-
-# Extended Agent Documentation
-
-## PlanningAgent - Detailed Reference
-
-### 8.1 Purpose
-
-The PlanningAgent is the first agent in the pipeline, responsible for analyzing incoming queries and determining the optimal retrieval and processing strategy. It acts as a router that directs queries to appropriate downstream agents based on query characteristics.
-
-### 8.2 Configuration Parameters
+### 15.1 Configuration
 
 ```yaml
 agentic:
-  # Enable dynamic planning
-  use_planning: true
-  
-  # Confidence threshold for accepting answers
-  min_confidence: 0.7
-  
-  # Maximum retry attempts
-  max_retries: 2
-
-pipeline:
-  use_planning: true
+  strategy_memory_enabled: true
+  strategy_memory_path: "./data/strategy_memory.json.gz"
 ```
 
-### 8.3 Input/Output Schema
-
-**Input:**
-- Query string
-- Conversation history (optional)
-- User preferences (optional)
-
-**Output:**
+### 15.2 Usage
 
 ```python
-@dataclass
-class RetrievalPlan:
-    mode: str                    # "dense", "sparse", "hybrid", "web"
-    use_decomposition: bool      # Whether to decompose query
-    use_rewrite: bool            # Whether to rewrite query
-    use_expansion: bool          # Whether to expand terms
-    confidence_threshold: float  # Required confidence level
-    retrieval_depth: int         # Number of documents to retrieve
-    reasoning: str               # Explanation of decisions
-```
+from radiant.agents.strategy_memory import RetrievalStrategyMemory
 
-### 8.4 Decision Logic
+memory = RetrievalStrategyMemory(config.agentic)
 
-The PlanningAgent uses the following decision tree:
-
-```
-Query Analysis
-├── Is it a current events query?
-│   └── Yes → Web Search mode
-├── Is it a complex multi-part query?
-│   └── Yes → Enable decomposition
-├── Does it contain specific technical terms?
-│   └── Yes → Hybrid mode (dense + BM25)
-├── Is it a semantic/conceptual query?
-│   └── Yes → Dense mode
-└── Is it a keyword/exact match query?
-    └── Yes → Sparse (BM25) mode
-```
-
-### 8.5 Usage Examples
-
-**Example 1: Simple Factual Query**
-
-```
-Query: "What is the capital of France?"
-Plan:
-  mode: dense
-  use_decomposition: false
-  use_rewrite: false
-  reasoning: "Simple factual query, semantic search sufficient"
-```
-
-**Example 2: Complex Comparison Query**
-
-```
-Query: "Compare Python and Java performance, and explain when to use each"
-Plan:
-  mode: hybrid
-  use_decomposition: true
-  use_rewrite: true
-  reasoning: "Complex comparison requiring multiple perspectives"
-```
-
-**Example 3: Current Events Query**
-
-```
-Query: "What happened in the stock market today?"
-Plan:
-  mode: web
-  use_decomposition: false
-  reasoning: "Real-time information required"
-```
-
----
-
-## FactVerificationAgent - Detailed Reference
-
-### 23.1 Purpose
-
-The FactVerificationAgent verifies each claim in a generated answer against the source documents. It identifies unsupported, contradicted, or unverifiable statements and can generate corrected versions.
-
-### 23.2 Configuration Parameters
-
-```yaml
-fact_verification:
-  # Enable fact verification
-  enabled: true
-  
-  # Minimum support confidence
-  min_support_confidence: 0.6
-  
-  # Maximum claims to verify
-  max_claims_to_verify: 20
-  
-  # Generate corrected answers
-  generate_corrections: true
-  
-  # Strict mode (fail on any contradiction)
-  strict_mode: false
-  
-  # Minimum factuality score
-  min_factuality_score: 0.5
-  
-  # Block answers that fail verification
-  block_on_failure: false
-```
-
-### 23.3 Input/Output Schema
-
-**Input:**
-- Generated answer
-- Source context
-
-**Output:**
-
-```python
-@dataclass
-class Claim:
-    text: str                   # The claim statement
-    source_sentence: str        # Original sentence
-
-@dataclass
-class ClaimVerification:
-    claim: Claim
-    status: VerificationStatus  # SUPPORTED, PARTIALLY_SUPPORTED, etc.
-    confidence: float
-    supporting_evidence: List[str]
-    contradicting_evidence: List[str]
-
-class VerificationStatus(Enum):
-    SUPPORTED = "supported"
-    PARTIALLY_SUPPORTED = "partially_supported"
-    NOT_SUPPORTED = "not_supported"
-    CONTRADICTED = "contradicted"
-    UNVERIFIABLE = "unverifiable"
-
-@dataclass
-class FactVerificationResult:
-    claims: List[ClaimVerification]
-    overall_score: float        # Weighted factuality score
-    is_factual: bool           # Passes threshold
-    needs_correction: bool      # Has contradictions/unsupported
-    corrected_answer: Optional[str]  # If corrections generated
-```
-
-### 23.4 Verification Process
-
-1. **Claim Extraction**: Parse answer into individual verifiable claims
-2. **Evidence Matching**: Find supporting/contradicting passages
-3. **Status Assignment**: Classify each claim
-4. **Score Calculation**: Compute weighted factuality score
-5. **Correction Generation**: If enabled, produce corrected version
-
-### 23.5 Usage Example
-
-```python
-result = fact_verification_agent.verify_answer(
-    answer=generated_answer,
-    context=source_documents,
+# Record outcome
+memory.record_outcome(
+    query=query,
+    strategy_used="hybrid",
+    confidence=0.85,
+    retrieval_quality=0.9,
 )
 
-print(f"Factuality Score: {result.overall_score:.2f}")
-print(f"Is Factual: {result.is_factual}")
-
-for cv in result.claims:
-    status_icon = "✓" if cv.status == VerificationStatus.SUPPORTED else "✗"
-    print(f"{status_icon} {cv.claim.text[:50]}... ({cv.status.value})")
+# Get recommended strategy
+recommendation = memory.recommend_strategy(query)
 ```
 
----
+## Chapter 16: Citation Tracking
 
-## CitationTrackingAgent - Detailed Reference
-
-### 24.1 Purpose
-
-The CitationTrackingAgent adds source attribution to generated answers. It tracks which documents support each statement and formats citations according to configured styles.
-
-### 24.2 Configuration Parameters
+### 16.1 Configuration
 
 ```yaml
 citation:
-  # Enable citation tracking
   enabled: true
-  
-  # Citation style: inline, footnote, academic, hyperlink, enterprise
-  citation_style: "inline"
-  
-  # Minimum citation confidence
-  min_citation_confidence: 0.5
-  
-  # Maximum citations per claim
-  max_citations_per_claim: 3
-  
-  # Include excerpts from sources
-  include_excerpts: true
-  excerpt_max_length: 200
-  
-  # Generate bibliography
+  citation_style: "inline"  # inline, footnote, academic, enterprise
   generate_bibliography: true
-  
-  # Generate audit trail
   generate_audit_trail: true
 ```
 
-### 24.3 Citation Styles
+### 16.2 Citation Styles
 
-| Style | Format | Example |
-|-------|--------|---------|
-| inline | [n] | "Python is interpreted [1]." |
-| footnote | ^[n] | "Python is interpreted^[1]." |
-| academic | (Author Year) | "Python is interpreted (Van Rossum 1991)." |
-| hyperlink | [text](url) | "[Python is interpreted](doc.pdf)." |
-| enterprise | {ref:id} | "Python is interpreted {ref:DOC001}." |
+| Style | Format | Use Case |
+|-------|--------|----------|
+| inline | `[1]` | General |
+| footnote | `^1` | Academic papers |
+| academic | `(Author, Year)` | Research |
+| enterprise | `[DOC-ID-123]` | Audit compliance |
 
-### 24.4 Audit Trail
+## Chapter 17: Multi-Hop Reasoning
 
-For enterprise compliance:
-
-```python
-audit = cited_answer.audit_log
-# {
-#     "audit_id": "a1b2c3d4e5f6",
-#     "timestamp": "2024-12-15T10:30:00Z",
-#     "query": "Original query",
-#     "answer_hash": "sha256:...",
-#     "sources": [
-#         {"id": "doc1", "path": "/docs/file.pdf", "accessed_at": "..."},
-#     ],
-#     "citations": [...],
-#     "verification_score": 0.95,
-# }
-```
-
-### 24.5 Usage Example
-
-```python
-cited = citation_agent.create_cited_answer(
-    answer=generated_answer,
-    sources=retrieved_documents,
-)
-
-print(cited.cited_answer)
-# Output: "Python is an interpreted language [1] that supports..."
-
-print(cited.bibliography)
-# Output: "[1] Python Reference. /docs/python.pdf"
-
-report = citation_agent.generate_audit_report(cited)
-```
-
----
-
-## LanguageDetectionAgent - Detailed Reference
-
-### 27.1 Purpose
-
-The LanguageDetectionAgent identifies the language of text content. It uses fast-langdetect (FastText) for efficient detection with optional LLM fallback for ambiguous cases.
-
-### 27.2 Configuration Parameters
-
-```yaml
-language_detection:
-  # Enable language detection
-  enabled: true
-  
-  # Detection method: "fast", "llm", "auto"
-  method: "fast"
-  
-  # Minimum confidence threshold
-  min_confidence: 0.7
-  
-  # Use LLM for low-confidence cases
-  use_llm_fallback: true
-  
-  # Default language if detection fails
-  fallback_language: "en"
-```
-
-### 27.3 Detection Methods
-
-| Method | Engine | Speed | Languages | Best For |
-|--------|--------|-------|-----------|----------|
-| fast | FastText | ~0.1ms | 176 | High volume |
-| llm | LLM | ~500ms | Unlimited | Ambiguous text |
-| auto | Fast + LLM fallback | Varies | 176+ | Balanced |
-
-### 27.4 Confidence Handling
-
-```python
-detection = agent.detect(text)
-
-if detection.confidence >= 0.7:
-    # High confidence, use result directly
-    return detection
-elif use_llm_fallback:
-    # Try LLM for better accuracy
-    return agent._detect_with_llm(text)
-else:
-    # Return with low confidence flag
-    return detection
-```
-
-### 27.5 Usage Examples
-
-```python
-# Basic detection
-detection = lang_agent.detect("这是中文文本")
-print(f"Language: {detection.language_name}")  # Chinese
-print(f"Code: {detection.language_code}")      # zh
-print(f"Confidence: {detection.confidence:.2f}")  # 0.99
-
-# Document-level detection
-detection = lang_agent.detect_document(long_document_text)
-
-# Batch detection
-detections = lang_agent.detect_batch([text1, text2, text3])
-
-# Detection with context hint
-detection = lang_agent.detect_with_context(
-    text=short_chunk,
-    document_language="zh",
-)
-```
-
----
-
-## TranslationAgent - Detailed Reference
-
-### 28.1 Purpose
-
-The TranslationAgent translates text between languages using LLM for high-quality translations. It supports automatic chunking for long documents and preserves formatting.
-
-### 28.2 Configuration Parameters
-
-```yaml
-translation:
-  # Enable translation
-  enabled: true
-  
-  # Translation method
-  method: "llm"
-  
-  # Target language for indexing
-  canonical_language: "en"
-  
-  # Maximum chars per LLM call
-  max_chars_per_llm_call: 4000
-  
-  # Translate at ingestion time
-  translate_at_ingestion: true
-  
-  # Preserve original text
-  preserve_original: true
-```
-
-### 28.3 Translation Workflow
-
-```
-Document (Any Language)
-    │
-    ▼
-LanguageDetectionAgent
-    │ detect source language
-    ▼
-Is canonical language?
-    │
-    ├── Yes → Skip translation
-    │
-    └── No → TranslationAgent
-             │ translate to canonical
-             ▼
-        Store: {
-          content: translated_text,
-          meta: {
-            language_code: source_lang,
-            original_content: original_text,
-            was_translated: true
-          }
-        }
-```
-
-### 28.4 Quality Preservation
-
-The agent preserves:
-- Paragraph structure
-- Bullet points and lists
-- Code blocks and technical terms
-- Proper nouns
-- Formatting markers
-
-### 28.5 Usage Examples
-
-```python
-# Basic translation
-result = translator.translate(
-    text="Bonjour le monde",
-    target_language="en",
-    source_language="fr",
-)
-print(result.translated_text)  # "Hello world"
-
-# Translate to canonical language
-result = translator.translate_to_canonical(chinese_document)
-
-# Check if translation needed
-if translator.needs_translation(source_lang="fr"):
-    result = translator.translate(text)
-```
-
----
-
-## MultiHopReasoningAgent - Detailed Reference
-
-### 25.1 Purpose
-
-The MultiHopReasoningAgent handles complex queries requiring multiple steps of reasoning and evidence gathering. It decomposes queries into reasoning chains and iteratively retrieves evidence.
-
-### 25.2 Configuration Parameters
+### 17.1 Configuration
 
 ```yaml
 multihop:
-  # Enable multi-hop reasoning
   enabled: true
-  
-  # Maximum reasoning hops
   max_hops: 3
-  
-  # Documents to retrieve per hop
   docs_per_hop: 5
-  
-  # Minimum confidence to continue
   min_confidence_to_continue: 0.3
-  
-  # Enable entity extraction
-  enable_entity_extraction: true
 ```
 
-### 25.3 Reasoning Chain Example
-
-Query: "Who is the CEO of the company that makes iPhone?"
-
-```
-Step 1:
-  Sub-question: "Which company makes iPhone?"
-  Evidence: "Apple Inc. designs and manufactures the iPhone..."
-  Answer: Apple Inc.
-  Entities extracted: [Apple Inc., iPhone]
-
-Step 2:
-  Sub-question: "Who is the CEO of Apple Inc.?"
-  Evidence: "Tim Cook has served as CEO of Apple Inc. since..."
-  Answer: Tim Cook
-  
-Final Answer: Tim Cook is the CEO of Apple Inc., the company that makes iPhone.
-```
-
-### 25.4 Query Detection
-
-The agent identifies multi-hop queries:
+### 17.2 Query Detection
 
 | Pattern | Example | Hops |
 |---------|---------|------|
@@ -1541,25 +963,175 @@ The agent identifies multi-hop queries:
 | Temporal | "What happened after the event in 1991?" | 2 |
 | Causal chain | "What caused the result of X?" | 2-3 |
 
-### 25.5 Usage Example
+---
+
+# Part XI: API Reference
+
+## Chapter 18: PipelineResult
 
 ```python
-if multihop_agent.requires_multihop(query):
-    result = multihop_agent.run(query)
+@dataclass
+class PipelineResult:
+    answer: str                    # Generated answer
+    context: AgentContext          # Pipeline context
+    metrics: RunMetrics            # Performance metrics
+    success: bool = True
+    error: Optional[str] = None
     
-    print(f"Completed in {result.total_hops} hops")
+    # Agentic enhancements
+    confidence: float = 0.0
+    retrieval_mode_used: str = "hybrid"
+    retry_count: int = 0
+    tools_used: List[str] = []
+    low_confidence: bool = False
     
-    for step in result.reasoning_steps:
-        print(f"Step {step.step_index}: {step.sub_question}")
-        print(f"  Answer: {step.answer}")
-        print(f"  Confidence: {step.confidence:.2f}")
+    # Multi-hop reasoning
+    multihop_used: bool = False
+    multihop_hops: int = 0
     
-    print(f"Final: {result.final_answer}")
+    # Fact verification
+    fact_verification_score: float = 1.0
+    fact_verification_passed: bool = True
+    
+    # Citation tracking
+    cited_answer: Optional[str] = None
+    citations: List[Dict[str, Any]] = []
+    sources: List[Dict[str, Any]] = []
+    audit_id: Optional[str] = None
 ```
+
+## Chapter 19: RadiantRAG Methods
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `query` | query, mode, conversation_id | PipelineResult | Full pipeline query |
+| `query_raw` | query, mode | PipelineResult | Query without display |
+| `simple_query` | query, top_k | str | Minimal pipeline |
+| `search` | query, mode, top_k | List[Tuple] | Retrieval only |
+| `ingest_documents` | paths, hierarchical | Dict | Ingest files |
+| `ingest_urls` | urls | Dict | Ingest URLs |
+| `ingest_github` | url | Dict | Ingest GitHub repo |
+| `clear_index` | keep_bm25 | bool | Clear all documents |
+| `check_health` | - | Dict | System health |
+| `get_stats` | - | Dict | System statistics |
 
 ---
 
-# Complete Configuration Reference
+# Part XII: Troubleshooting
+
+## Chapter 20: Common Issues
+
+### 20.1 Connection Issues
+
+**Redis connection failed**
+```bash
+# Check Redis is running
+docker ps | grep redis-stack
+
+# Start Redis
+docker run -d --name redis-stack -p 6379:6379 redis/redis-stack-server
+
+# Test connection
+python tools/check_redis.py
+```
+
+**PostgreSQL connection failed**
+```bash
+# Verify connection string
+export PG_CONN_STR="postgresql://user:pass@localhost:5432/radiant"
+
+# Test pgvector extension
+psql -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+```
+
+### 20.2 Retrieval Issues
+
+**No documents found**
+```bash
+# Check index status
+python -m radiant stats
+
+# Inspect index
+python tools/inspect_index.py
+
+# Clear and re-ingest
+python -m radiant clear --confirm
+python -m radiant ingest ./docs/
+```
+
+**Quantization not working**
+```bash
+# Validate implementation
+python tools/validate_quantization.py
+
+# Check calibration file
+python tools/calibrate_int8_ranges.py --sample-size 100000 --output data/int8_ranges.npy
+```
+
+### 20.3 Performance Issues
+
+**Slow ingestion**
+```yaml
+# Increase batch sizes
+ingestion:
+  embedding_batch_size: 64
+  redis_batch_size: 200
+```
+
+**High memory usage**
+```yaml
+# Enable quantization
+redis:
+  quantization:
+    enabled: true
+    precision: "both"
+```
+
+## Chapter 21: Diagnostic Tools
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `check_redis.py` | Test Redis connection | `python tools/check_redis.py` |
+| `inspect_index.py` | Inspect index contents | `python tools/inspect_index.py` |
+| `validate_quantization.py` | Validate quantization | `python tools/validate_quantization.py` |
+| `calibrate_int8_ranges.py` | Calibrate int8 | `python tools/calibrate_int8_ranges.py` |
+| `validate_bugfix.py` | Validate fixes | `python tools/validate_bugfix.py` |
+
+---
+
+# Appendices
+
+## Appendix A: Error Reference
+
+| Code | Error | Cause | Solution |
+|------|-------|-------|----------|
+| E001 | Redis connection failed | Redis not running | Start Redis |
+| E002 | LLM request timeout | Slow LLM response | Increase timeout |
+| E003 | Embedding model load failed | Model not found | Check model name |
+| E004 | Document parsing failed | Invalid file format | Check file |
+| E005 | Index creation failed | Redis memory full | Add memory |
+| E006 | Vector dimension mismatch | Wrong model | Match dimensions |
+| E007 | Translation failed | LLM unavailable | Check endpoint |
+| E008 | Language detection failed | Missing dependency | Install fast-langdetect |
+| E009 | Tool execution failed | Invalid input | Check input |
+| E010 | Conversation not found | Invalid ID | Verify ID |
+| E011 | Configuration invalid | YAML syntax error | Validate YAML |
+| E012 | Memory limit exceeded | Too many documents | Reduce batch |
+| E013 | GPU out of memory | Model too large | Enable 4bit |
+| E014 | File not found | Invalid path | Check path |
+| E015 | Quantization failed | Missing calibration | Run calibration |
+
+## Appendix B: Supported Languages
+
+The LanguageDetectionAgent supports 176 languages including:
+
+**Major Languages:** English (en), Chinese (zh), Spanish (es), French (fr), German (de), Japanese (ja), Korean (ko), Portuguese (pt), Russian (ru), Arabic (ar)
+
+**European Languages:** Bulgarian (bg), Czech (cs), Danish (da), Greek (el), Finnish (fi), Hungarian (hu), Norwegian (no), Romanian (ro), Slovak (sk), Swedish (sv)
+
+**Asian Languages:** Thai (th), Vietnamese (vi), Indonesian (id), Malay (ms), Tagalog (tl), Bengali (bn), Tamil (ta), Telugu (te), Hindi (hi)
+
+## Appendix C: Complete Configuration Reference
 
 ```yaml
 # =============================================================================
@@ -1580,83 +1152,59 @@ local_models:
   device: "auto"
   embedding_dimension: 384
 
+storage:
+  backend: redis  # redis, chroma, pgvector
+
 redis:
   url: "redis://localhost:6379/0"
   key_prefix: "radiant"
-  doc_ns: "doc"
-  embed_ns: "emb"
-
-vector_index:
-  name: "radiant_vectors"
-  hnsw_m: 16
-  hnsw_ef_construction: 200
-  hnsw_ef_runtime: 100
-  distance_metric: "COSINE"
+  quantization:
+    enabled: false
+    precision: "both"
+    rescore_multiplier: 4.0
+    int8_ranges_file: "data/int8_ranges.npy"
 
 bm25:
+  index_path: "./data/bm25_index"
   k1: 1.5
   b: 0.75
-  top_k: 10
-  persist: true
 
 retrieval:
-  top_k: 10
-  min_similarity: 0.5
+  dense_top_k: 10
+  bm25_top_k: 10
+  fused_top_k: 15
+  rrf_k: 60
+  search_scope: "leaves"
 
 rerank:
-  enabled: true
-  top_k: 20
-  model_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
-
-automerge:
-  enabled: true
-  threshold: 2
-  max_parent_size: 10000
+  top_k: 8
+  max_doc_chars: 3000
 
 synthesis:
-  max_tokens: 1024
-  temperature: 0.7
-  include_sources: true
+  max_context_docs: 8
+  max_doc_chars: 4000
 
 critic:
   enabled: true
-  min_confidence: 0.7
+  retry_on_issues: true
   max_retries: 2
+  confidence_threshold: 0.4
 
 agentic:
-  use_planning: true
-  use_tools: true
-  use_strategy_memory: true
-  min_confidence: 0.7
-  max_retries: 2
-
-chunking:
-  enabled: true
-  method: "llm"
-  target_chunk_size: 1000
-  size_tolerance: 0.3
-
-summarization:
-  enabled: true
-  max_summary_length: 4000
-  strategy: "abstractive"
-
-context_evaluation:
-  enabled: true
-  min_relevance_score: 0.6
-  min_coverage_score: 0.5
+  dynamic_retrieval_mode: true
+  tools_enabled: true
+  strategy_memory_enabled: true
+  strategy_memory_path: "./data/strategy_memory.json.gz"
 
 multihop:
   enabled: true
   max_hops: 3
   docs_per_hop: 5
-  min_confidence_to_continue: 0.3
 
 fact_verification:
   enabled: true
   min_support_confidence: 0.6
   max_claims_to_verify: 20
-  generate_corrections: true
 
 citation:
   enabled: true
@@ -1668,50 +1216,16 @@ language_detection:
   enabled: true
   method: "fast"
   min_confidence: 0.7
-  use_llm_fallback: true
-  fallback_language: "en"
 
 translation:
   enabled: true
   method: "llm"
   canonical_language: "en"
-  max_chars_per_llm_call: 4000
   translate_at_ingestion: true
-  preserve_original: true
-
-query:
-  max_decomposed_queries: 5
-  max_expansions: 12
-
-conversation:
-  enabled: true
-  max_turns: 50
-  ttl: 86400
-
-pipeline:
-  use_planning: true
-  use_decomposition: true
-  use_rewrite: true
-  use_expansion: true
-  use_rrf: true
-  use_automerge: true
-  use_rerank: true
-  use_critic: true
-
-web_search:
-  enabled: false
-  provider: "duckduckgo"
-  max_results: 10
-
-vlm:
-  enabled: true
-  model_name: "Qwen/Qwen2-VL-2B-Instruct"
-  device: "auto"
-  load_in_4bit: false
 
 logging:
   level: "INFO"
-  file: ""
+  colorize: true
 
 metrics:
   enabled: true
@@ -1720,58 +1234,8 @@ metrics:
 
 ---
 
-# Error Reference
-
-| Code | Error | Cause | Solution |
-|------|-------|-------|----------|
-| E001 | Redis connection failed | Redis not running | Start Redis: `docker-compose up -d redis` |
-| E002 | LLM request timeout | Slow LLM response | Increase `ollama.timeout` |
-| E003 | Embedding model load failed | Model not found | Check model name, verify disk space |
-| E004 | Document parsing failed | Invalid file format | Check file is not corrupted |
-| E005 | Index creation failed | Redis memory full | Clear old data or add memory |
-| E006 | Vector dimension mismatch | Wrong embedding model | Match `embedding_dimension` to model |
-| E007 | Translation failed | LLM unavailable | Check LLM endpoint |
-| E008 | Language detection failed | Missing dependency | `pip install fast-langdetect` |
-| E009 | Tool execution failed | Invalid input | Check tool input format |
-| E010 | Conversation not found | Invalid ID | Verify conversation exists |
-| E011 | Configuration invalid | YAML syntax error | Validate YAML format |
-| E012 | Memory limit exceeded | Too many documents | Reduce batch size |
-| E013 | GPU out of memory | Model too large | Enable `load_in_4bit` |
-| E014 | File not found | Invalid path | Check file exists |
-| E015 | Permission denied | Access rights | Check permissions |
-
----
-
-# Supported Languages (Complete List)
-
-The LanguageDetectionAgent supports 176 languages:
-
-**Major Languages:**
-- English (en), Chinese (zh), Spanish (es), French (fr), German (de)
-- Japanese (ja), Korean (ko), Portuguese (pt), Russian (ru), Arabic (ar)
-- Hindi (hi), Italian (it), Dutch (nl), Polish (pl), Turkish (tr)
-
-**European Languages:**
-- Bulgarian (bg), Czech (cs), Danish (da), Greek (el), Finnish (fi)
-- Hungarian (hu), Norwegian (no), Romanian (ro), Slovak (sk), Swedish (sv)
-- Ukrainian (uk), Croatian (hr), Serbian (sr), Slovenian (sl), Estonian (et)
-- Latvian (lv), Lithuanian (lt), Catalan (ca), Basque (eu), Galician (gl)
-
-**Asian Languages:**
-- Thai (th), Vietnamese (vi), Indonesian (id), Malay (ms), Tagalog (tl)
-- Bengali (bn), Tamil (ta), Telugu (te), Kannada (kn), Malayalam (ml)
-- Marathi (mr), Gujarati (gu), Punjabi (pa), Urdu (ur), Nepali (ne)
-
-**Middle Eastern Languages:**
-- Hebrew (he), Persian (fa), Kurdish (ku), Pashto (ps)
-
-**African Languages:**
-- Swahili (sw), Amharic (am), Hausa (ha), Yoruba (yo), Zulu (zu)
-
----
-
 *End of Radiant Agentic RAG User Manual*
 
-**Version 1.0 | December 2024**
+**Version 1.4 | January 2025**
 
 For support and updates, visit the project repository.
