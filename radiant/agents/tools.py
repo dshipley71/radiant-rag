@@ -10,11 +10,10 @@ from __future__ import annotations
 import ast
 import logging
 import operator
-import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiant.llm.client import LLMClient

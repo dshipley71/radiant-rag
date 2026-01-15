@@ -22,7 +22,6 @@ import redis
 from radiant.config import RedisConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
 from radiant.storage.quantization import (
-    QuantizationConfig,
     quantize_embeddings,
     embedding_to_bytes as quant_embedding_to_bytes,
     bytes_to_embedding as quant_bytes_to_embedding,

@@ -136,7 +136,7 @@ def get_doc_by_id(store: RedisVectorStore, doc_id: str):
         return None
 
     print(f"\n{'='*60}")
-    print(f"DOCUMENT DETAILS")
+    print("DOCUMENT DETAILS")
     print(f"{'='*60}\n")
 
     print(f"  Doc ID: {doc.doc_id}")
@@ -165,7 +165,7 @@ def show_stats(store: RedisVectorStore, bm25: PersistentBM25Index):
             levels[level] = levels.get(level, 0) + 1
 
     print(f"\n{'='*60}")
-    print(f"INDEX STATISTICS")
+    print("INDEX STATISTICS")
     print(f"{'='*60}\n")
 
     print(f"  Redis Documents: {len(doc_ids)}")
@@ -180,7 +180,7 @@ def show_stats(store: RedisVectorStore, bm25: PersistentBM25Index):
 
     # Vector index info
     vector_info = store.get_index_info()
-    print(f"\n  Vector Index:")
+    print("\n  Vector Index:")
     for key, value in vector_info.items():
         print(f"    - {key}: {value}")
 

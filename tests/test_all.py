@@ -6,8 +6,6 @@ Provides unit tests with mocking for all major components.
 Run with: pytest tests_comprehensive.py -v --cov=. --cov-report=html
 """
 
-import gzip
-import json
 import os
 import sys
 import tempfile
@@ -16,9 +14,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import MagicMock, Mock, patch, PropertyMock
-
-import numpy as np
+from unittest.mock import MagicMock, patch
 
 
 # =============================================================================
@@ -81,12 +77,7 @@ class TestConfigurationParsing(unittest.TestCase):
 
     def test_frozen_dataclasses(self):
         """Verify all config dataclasses are frozen (immutable)."""
-        from config import (
-            OllamaConfig, LocalModelsConfig, BM25Config, RetrievalConfig,
-            RerankConfig, AutoMergeConfig, SynthesisConfig, CriticConfig,
-            QueryConfig, ConversationConfig, ParsingConfig,
-            UnstructuredCleaningConfig, LoggingConfig, MetricsConfig, PipelineConfig
-        )
+        from config import OllamaConfig
 
         # Test that OllamaConfig is frozen
         config = OllamaConfig(
@@ -688,7 +679,6 @@ class TestBM25IndexSerialization(unittest.TestCase):
 
     def test_json_file_format(self):
         """Test actual JSON file format is correct."""
-        import gzip
         import json
         from bm25_index import BM25Index
 

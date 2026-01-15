@@ -244,7 +244,6 @@ def test_storage_backend_integration():
     try:
         from radiant.storage.redis_store import RedisVectorStore
         from radiant.config import RedisConfig, QuantizationConfig
-        from dataclasses import replace
         
         # Create a test config with quantization enabled
         quant_config = QuantizationConfig(

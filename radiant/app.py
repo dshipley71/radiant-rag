@@ -1671,7 +1671,7 @@ def main() -> int:
                 answer = app.simple_query(args.query)
                 console.print(answer)
             else:
-                _result = app.query(
+                app.query(
                     args.query,
                     conversation_id=args.conversation,
                     retrieval_mode=args.mode,

@@ -20,7 +20,6 @@ import numpy as np
 from radiant.config import ChromaConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
 from radiant.storage.quantization import (
-    QuantizationConfig,
     quantize_embeddings,
     rescore_candidates,
     QUANTIZATION_AVAILABLE,

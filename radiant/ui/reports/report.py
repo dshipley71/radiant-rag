@@ -10,7 +10,6 @@ from __future__ import annotations
 import html
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 from rich import box
 
 from radiant.utils.metrics import RunMetrics
@@ -102,13 +100,34 @@ class QueryReport:
 
 def normalize_scores(sources: List[Tuple[StoredDoc, float]]) -> List[Tuple[StoredDoc, float, float]]:
     """
-    Normalize scores to 0-100 range for display.
+    Normalize relevance scores to 0-100 range for display.
     
-    Cross-encoder scores are logits that can be negative, so we use min-max normalization.
-    The highest score becomes 100%, lowest becomes 0%.
+    Cross-encoder and other retrieval scores can be logits that vary in range
+    and may be negative. This function applies min-max normalization to convert
+    scores to a consistent 0-100 percentage scale for user-friendly display.
     
+    The highest score in the result set becomes 100%, and the lowest becomes 0%.
+    This relative normalization helps users understand document relevance within
+    the context of a specific query, regardless of the underlying scoring method.
+    
+    Args:
+        sources: List of (StoredDoc, score) tuples from retrieval.
+        
     Returns:
-        List of (doc, raw_score, normalized_score) tuples
+        List of (StoredDoc, raw_score, normalized_score) tuples where:
+        - StoredDoc: The original document object
+        - raw_score: The original retrieval score
+        - normalized_score: Score normalized to 0-100 range
+        
+    Edge Cases:
+        - Empty list returns empty list
+        - Single document gets 100%
+        - All identical scores get 100% each
+        
+    Examples:
+        >>> docs_scores = [(doc1, 0.9), (doc2, 0.5), (doc3, 0.1)]
+        >>> normalized = normalize_scores(docs_scores)
+        >>> # Returns [(doc1, 0.9, 100.0), (doc2, 0.5, 50.0), (doc3, 0.1, 0.0)]
     """
     if not sources:
         return []
@@ -167,7 +186,7 @@ def display_report(report: QueryReport, show_metrics: bool = True, compact: bool
     
     # Query section
     console.print()
-    console.print(f"[bold]Query[/bold]")
+    console.print("[bold]Query[/bold]")
     console.print(f"  {report.query}")
     
     # Pipeline summary (single line, compact)
@@ -316,8 +335,8 @@ def generate_markdown_report(report: QueryReport) -> str:
     lines = []
     
     # Header
-    lines.append(f"# Radiant RAG Report")
-    lines.append(f"")
+    lines.append("# Radiant RAG Report")
+    lines.append("")
     lines.append(f"**Generated:** {report.timestamp}")
     lines.append(f"**Mode:** {report.retrieval_mode.title()}")
     if report.run_id:
@@ -325,14 +344,14 @@ def generate_markdown_report(report: QueryReport) -> str:
     lines.append("")
     
     # Query
-    lines.append(f"## Query")
-    lines.append(f"")
+    lines.append("## Query")
+    lines.append("")
     lines.append(f"> {report.query}")
     lines.append("")
     
     # Pipeline Details
     if report.decomposed_queries or report.expansions or report.rewrites:
-        lines.append(f"## Pipeline Details")
+        lines.append("## Pipeline Details")
         lines.append("")
         
         if len(report.decomposed_queries) > 1:
@@ -368,14 +387,14 @@ def generate_markdown_report(report: QueryReport) -> str:
         lines.append("")
     
     # Answer
-    lines.append(f"## Answer")
+    lines.append("## Answer")
     lines.append("")
     lines.append(report.answer)
     lines.append("")
     
     # Sources
     if report.sources:
-        lines.append(f"## Sources")
+        lines.append("## Sources")
         lines.append("")
         lines.append("| # | Document | Page | Relevance | Preview |")
         lines.append("|---|----------|------|-----------|---------|")
@@ -397,7 +416,7 @@ def generate_markdown_report(report: QueryReport) -> str:
     
     # Critique
     if report.critique:
-        lines.append(f"## Quality Assessment")
+        lines.append("## Quality Assessment")
         lines.append("")
         
         scores = []
@@ -427,7 +446,7 @@ def generate_markdown_report(report: QueryReport) -> str:
     
     # Metrics
     if report.metrics and report.metrics.steps:
-        lines.append(f"## Performance")
+        lines.append("## Performance")
         lines.append("")
         lines.append("| Step | Latency | Details |")
         lines.append("|------|---------|---------|")
@@ -893,17 +912,17 @@ class SearchReport:
     def to_markdown(self) -> str:
         """Generate markdown report."""
         lines = [
-            f"# Document Search Results",
-            f"",
+            "# Document Search Results",
+            "",
             f"**Query:** {self.query}",
             f"**Mode:** {self.mode.title()}",
             f"**Results:** {len(self.results)}",
             f"**Date:** {self.timestamp}",
-            f"",
-            f"## Results",
-            f"",
-            f"| # | Document | Page | Score | Preview |",
-            f"|---|----------|------|-------|---------|",
+            "",
+            "## Results",
+            "",
+            "| # | Document | Page | Score | Preview |",
+            "|---|----------|------|-------|---------|",
         ]
         
         normalized = normalize_scores(self.results)

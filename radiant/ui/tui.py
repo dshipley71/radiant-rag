@@ -7,10 +7,9 @@ with real-time pipeline visualization and professional report display.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -22,29 +21,20 @@ from textual.widgets import (
     Footer,
     Header,
     Input,
-    Label,
-    ListItem,
-    ListView,
     LoadingIndicator,
-    Markdown,
     RichLog,
-    Rule,
     Static,
     TabbedContent,
     TabPane,
-    TextArea,
 )
-from textual.message import Message
 
-from rich.text import Text
 from rich.table import Table
-from rich.panel import Panel
 from rich import box
 
 if TYPE_CHECKING:
     from radiant.app import RadiantRAG
     from radiant.orchestrator import PipelineResult
-    from radiant.utils.metrics import RunMetrics, StepMetric
+    from radiant.utils.metrics import RunMetrics
     from radiant.agents import AgentContext
 
 logger = logging.getLogger(__name__)

@@ -10,10 +10,9 @@ Tests the complete lifecycle of agents including:
 """
 
 import pytest
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from radiant.agents.base_agent import (
     AgentCategory,
@@ -264,7 +263,7 @@ class TestBaseAgentLifecycle:
                 return kwargs
         
         agent = KwargsTestAgent()
-        result = agent.run(query="test", extra_param=123)
+        agent.run(query="test", extra_param=123)
         
         assert agent.received_kwargs["query"] == "test"
         assert agent.received_kwargs["extra_param"] == 123

@@ -21,7 +21,6 @@ import numpy as np
 from radiant.config import PgVectorConfig
 from radiant.storage.base import BaseVectorStore, StoredDoc
 from radiant.storage.quantization import (
-    QuantizationConfig,
     quantize_embeddings,
     embedding_to_bytes as quant_embedding_to_bytes,
     bytes_to_embedding as quant_bytes_to_embedding,
@@ -146,7 +145,7 @@ class PgVectorStore(BaseVectorStore):
         if self._quant_config.enabled and self._quant_config.int8_ranges_file:
             try:
                 self._int8_ranges = np.load(self._quant_config.int8_ranges_file)
-                logger.info(f"Loaded int8 calibration ranges")
+                logger.info("Loaded int8 calibration ranges")
             except Exception as e:
                 logger.warning(f"Failed to load int8 ranges: {e}")
         

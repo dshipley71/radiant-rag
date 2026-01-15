@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple

@@ -60,9 +60,9 @@ def main():
     if imports_ok:
         print("✅ Python imports: OK (redis.commands.search)")
     else:
-        print(f"❌ Python imports: FAILED")
+        print("❌ Python imports: FAILED")
         print(f"   Error: {import_error}")
-        print(f"   Fix: pip install --upgrade redis")
+        print("   Fix: pip install --upgrade redis")
 
     print()
 

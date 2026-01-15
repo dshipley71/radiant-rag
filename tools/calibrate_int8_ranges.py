@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def sample_embeddings_redis(store, sample_size: int) -> np.ndarray:
     """Sample embeddings from Redis store."""
-    logger.info(f"Sampling from Redis store...")
+    logger.info("Sampling from Redis store...")
     
     doc_ids = store.list_doc_ids_with_embeddings(limit=min(sample_size, 500_000))
     
@@ -59,7 +59,7 @@ def sample_embeddings_redis(store, sample_size: int) -> np.ndarray:
 
 def sample_embeddings_chroma(store, sample_size: int) -> np.ndarray:
     """Sample embeddings from Chroma store."""
-    logger.info(f"Sampling from Chroma store...")
+    logger.info("Sampling from Chroma store...")
     
     doc_ids = store.list_doc_ids_with_embeddings(limit=min(sample_size, 500_000))
     
@@ -90,7 +90,7 @@ def sample_embeddings_chroma(store, sample_size: int) -> np.ndarray:
 
 def sample_embeddings_pgvector(store, sample_size: int) -> np.ndarray:
     """Sample embeddings from PgVector store."""
-    logger.info(f"Sampling from PgVector store...")
+    logger.info("Sampling from PgVector store...")
     
     doc_ids = store.list_doc_ids_with_embeddings(limit=min(sample_size, 500_000))
     
@@ -148,7 +148,7 @@ def calculate_ranges(embeddings: np.ndarray) -> np.ndarray:
         np.max(embeddings, axis=0)
     ])
     
-    logger.info(f"Calibration statistics:")
+    logger.info("Calibration statistics:")
     logger.info(f"  Embedding dimension: {embeddings.shape[1]}")
     logger.info(f"  Sample size: {embeddings.shape[0]:,}")
     logger.info(f"  Global min: {ranges[0].min():.6f}")
@@ -191,7 +191,7 @@ def main():
     # Load config
     try:
         config = load_config(args.config) if args.config else load_config()
-        logger.info(f"Loaded configuration")
+        logger.info("Loaded configuration")
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
         sys.exit(1)

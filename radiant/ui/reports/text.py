@@ -8,16 +8,12 @@ and metrics.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from radiant.orchestrator import PipelineResult
-    from radiant.utils.metrics import RunMetrics, StepMetric
-    from radiant.agents import AgentContext
-    from radiant.storage.base import StoredDoc
 
 
 # =============================================================================
@@ -116,7 +112,6 @@ class TextReportBuilder:
         self._add_separator("=")
         self._add_line()
         
-        ctx = result.context
         metrics = result.metrics
         
         timestamp = datetime.fromtimestamp(metrics.started_at)
@@ -200,7 +195,7 @@ class TextReportBuilder:
         self._add_line(f"Status              : {status}")
         self._add_line(f"Total Latency       : {total_latency:.2f} s")
         self._add_line(f"Steps Executed      : {len(metrics.steps)}")
-        self._add_line(f"Backends Used       : redis_vector, bm25")
+        self._add_line("Backends Used       : redis_vector, bm25")
         
         pre_rerank = len(ctx.fused) if ctx.fused else len(ctx.dense_retrieved) + len(ctx.bm25_retrieved)
         self._add_line(f"Documents Retrieved : {pre_rerank} (pre-rerank)")
@@ -214,7 +209,7 @@ class TextReportBuilder:
                 confidence = critic["quality"]
         
         self._add_line(f"Answer Confidence   : {confidence:.2f} (0–1)")
-        self._add_line(f"Guardrails          : PASSED (no PII/secrets detected)")
+        self._add_line("Guardrails          : PASSED (no PII/secrets detected)")
         self._add_line()
         
         # Token usage (estimated)
@@ -237,7 +232,7 @@ class TextReportBuilder:
         
         # Planner summary
         self._add_subsection("Planner Summary")
-        self._add_line(f"Goal: Process the user query and generate a comprehensive answer")
+        self._add_line("Goal: Process the user query and generate a comprehensive answer")
         self._add_line("      using the configured retrieval and generation pipeline.")
         self._add_line()
         
@@ -378,9 +373,9 @@ class TextReportBuilder:
         
         # Dense retrieval summary
         self._add_subsection("Dense Retrieval (Redis Vector)")
-        self._add_line(f"Index               : radiant_vectors")
+        self._add_line("Index               : radiant_vectors")
         self._add_line(f"Top-k (pre-rerank)  : {len(ctx.dense_retrieved)}")
-        self._add_line(f"Filters             : none")
+        self._add_line("Filters             : none")
         self._add_line()
         
         if ctx.dense_retrieved:
@@ -399,7 +394,7 @@ class TextReportBuilder:
         
         # BM25 retrieval summary
         self._add_subsection("BM25 Retrieval")
-        self._add_line(f"Index               : bm25_index")
+        self._add_line("Index               : bm25_index")
         self._add_line(f"Top-k (pre-rerank)  : {len(ctx.bm25_retrieved)}")
         self._add_line()
         
@@ -419,7 +414,7 @@ class TextReportBuilder:
         
         # Reranking summary
         self._add_subsection("Reranking & Context Selection")
-        self._add_line(f"Reranker Model      : cross-encoder/ms-marco-MiniLM-L-6-v2")
+        self._add_line("Reranker Model      : cross-encoder/ms-marco-MiniLM-L-6-v2")
         
         candidate_pool = len(ctx.fused) if ctx.fused else len(ctx.auto_merged)
         self._add_line(f"Candidate Pool Size : {candidate_pool}")

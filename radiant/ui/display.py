@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from radiant.utils.metrics import RunMetrics, StepMetric
+from radiant.utils.metrics import RunMetrics
 from radiant.storage.base import StoredDoc
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,29 @@ console = Console()
 
 
 def format_latency(ms: Optional[float]) -> str:
-    """Format latency in human-readable form."""
+    """
+    Format latency in human-readable form.
+    
+    Converts a millisecond value into a string representation that uses
+    milliseconds for values under 1 second and seconds for larger values.
+    
+    Args:
+        ms: Latency value in milliseconds, or None if unavailable.
+        
+    Returns:
+        Human-readable latency string:
+        - "N/A" if ms is None
+        - "{value}ms" for values < 1000ms (e.g., "42.5ms")
+        - "{value}s" for values >= 1000ms (e.g., "1.50s")
+        
+    Examples:
+        >>> format_latency(None)
+        'N/A'
+        >>> format_latency(42.5)
+        '42.5ms'
+        >>> format_latency(1500)
+        '1.50s'
+    """
     if ms is None:
         return "N/A"
     if ms < 1000:
@@ -422,29 +444,29 @@ def display_index_stats(
     
     if redis_search_available:
         if index_exists:
-            console.print(f"  [green]✓[/green] Redis Search: [green]Active[/green] (HNSW index)")
+            console.print("  [green]✓[/green] Redis Search: [green]Active[/green] (HNSW index)")
             console.print(f"    Documents indexed: {doc_count:,}")
             if "dimension" in vector_index:
                 console.print(f"    Embedding dimension: {vector_index['dimension']}")
         else:
-            console.print(f"  [yellow]![/yellow] Redis Search: Available but index not created")
-            console.print(f"    Run ingestion to create the vector index")
+            console.print("  [yellow]![/yellow] Redis Search: Available but index not created")
+            console.print("    Run ingestion to create the vector index")
     elif not imports_available and server_has_module:
         # Server has Redis Search but Python imports failed
-        console.print(f"  [red]✗[/red] Redis Search: [red]Import Error[/red]")
-        console.print(f"    Server has Redis Search module, but Python can't use it")
-        console.print(f"    Using fallback: Linear scan (slower)")
+        console.print("  [red]✗[/red] Redis Search: [red]Import Error[/red]")
+        console.print("    Server has Redis Search module, but Python can't use it")
+        console.print("    Using fallback: Linear scan (slower)")
         console.print(f"    Documents in store: {doc_count:,}")
         console.print()
-        console.print(f"  [yellow]💡 Fix: Upgrade redis-py package:[/yellow]")
-        console.print(f"     pip install --upgrade redis")
+        console.print("  [yellow]💡 Fix: Upgrade redis-py package:[/yellow]")
+        console.print("     pip install --upgrade redis")
     else:
-        console.print(f"  [yellow]![/yellow] Redis Search: [yellow]Not available[/yellow]")
-        console.print(f"    Using fallback: Linear scan (slower for large datasets)")
+        console.print("  [yellow]![/yellow] Redis Search: [yellow]Not available[/yellow]")
+        console.print("    Using fallback: Linear scan (slower for large datasets)")
         console.print(f"    Documents in store: {doc_count:,}")
         console.print()
-        console.print(f"  [dim]💡 For faster vector search, install Redis Stack:[/dim]")
-        console.print(f"  [dim]   docker run -d -p 6379:6379 redis/redis-stack[/dim]")
+        console.print("  [dim]💡 For faster vector search, install Redis Stack:[/dim]")
+        console.print("  [dim]   docker run -d -p 6379:6379 redis/redis-stack[/dim]")
     
     console.print()
     
@@ -456,14 +478,14 @@ def display_index_stats(
     needs_rebuild = bm25_index.get("needs_rebuild", False)
     
     if bm25_doc_count > 0:
-        console.print(f"  [green]✓[/green] BM25 Index: [green]Active[/green]")
+        console.print("  [green]✓[/green] BM25 Index: [green]Active[/green]")
         console.print(f"    Documents: {bm25_doc_count:,}")
         console.print(f"    Vocabulary: {unique_terms:,} unique terms")
         if needs_rebuild:
-            console.print(f"  [yellow]![/yellow] Index needs sync (run query to auto-sync)")
+            console.print("  [yellow]![/yellow] Index needs sync (run query to auto-sync)")
     else:
-        console.print(f"  [yellow]![/yellow] BM25 Index: Empty")
-        console.print(f"    Run ingestion to build the index")
+        console.print("  [yellow]![/yellow] BM25 Index: Empty")
+        console.print("    Run ingestion to build the index")
     
     console.print()
 
