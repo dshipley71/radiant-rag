@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from functools import lru_cache
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -16,25 +16,25 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingCache:
     """
-    LRU cache for text embeddings to avoid redundant computation.
+    True LRU cache for text embeddings to avoid redundant computation.
 
-    Uses content-based hashing for cache keys to handle identical texts.
+    Uses OrderedDict with move_to_end() for proper LRU eviction.
     Thread-safe through Python's GIL for dictionary operations.
     """
 
     def __init__(self, max_size: int = 10000) -> None:
         """
-        Initialize embedding cache.
+        Initialize embedding cache with true LRU eviction.
 
         Args:
             max_size: Maximum number of embeddings to cache (default 10000)
                      At ~1.5KB per embedding (384-dim float32), this uses ~15MB RAM
         """
-        self._cache: Dict[str, List[float]] = {}
+        self._cache: OrderedDict[str, List[float]] = OrderedDict()
         self._max_size = max_size
         self._hits = 0
         self._misses = 0
-        logger.info(f"Initialized EmbeddingCache with max_size={max_size}")
+        logger.info(f"Initialized EmbeddingCache with max_size={max_size} (true LRU)")
 
     def _hash_text(self, text: str) -> str:
         """Generate cache key from text content."""
@@ -42,7 +42,7 @@ class EmbeddingCache:
 
     def get(self, text: str) -> Optional[List[float]]:
         """
-        Retrieve cached embedding for text.
+        Retrieve cached embedding for text with LRU tracking.
 
         Args:
             text: Input text
@@ -55,6 +55,8 @@ class EmbeddingCache:
 
         if embedding is not None:
             self._hits += 1
+            # TRUE LRU: Move to end (most recently used)
+            self._cache.move_to_end(key)
         else:
             self._misses += 1
 
@@ -62,7 +64,7 @@ class EmbeddingCache:
 
     def put(self, text: str, embedding: List[float]) -> None:
         """
-        Store embedding in cache.
+        Store embedding in cache with LRU eviction.
 
         Args:
             text: Input text
@@ -70,13 +72,18 @@ class EmbeddingCache:
         """
         key = self._hash_text(text)
 
-        # Simple LRU eviction: if full, remove oldest entry
-        if len(self._cache) >= self._max_size:
-            # Remove first item (oldest in insertion order for Python 3.7+)
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
-            logger.debug(f"Evicted embedding from cache (size={len(self._cache)})")
+        # If key exists, remove it (will be re-added at end)
+        if key in self._cache:
+            del self._cache[key]
 
+        # TRUE LRU eviction: Remove least recently used (first item)
+        if len(self._cache) >= self._max_size:
+            # Remove first item (least recently used in OrderedDict)
+            lru_key = next(iter(self._cache))
+            del self._cache[lru_key]
+            logger.debug(f"Evicted LRU embedding from cache (size={len(self._cache)})")
+
+        # Add to end (most recently used)
         self._cache[key] = embedding
 
     def get_batch(self, texts: List[str]) -> Tuple[List[Optional[List[float]]], List[int]]:
@@ -142,23 +149,24 @@ class EmbeddingCache:
 
 class QueryCache:
     """
-    LRU cache for query results to avoid redundant LLM calls.
+    True LRU cache for query results to avoid redundant LLM calls.
 
     Caches query processing results like decomposition, rewriting, expansion.
+    Uses OrderedDict with move_to_end() for proper LRU eviction.
     """
 
     def __init__(self, max_size: int = 1000) -> None:
         """
-        Initialize query cache.
+        Initialize query cache with true LRU eviction.
 
         Args:
             max_size: Maximum number of query results to cache
         """
-        self._cache: Dict[str, Any] = {}
+        self._cache: OrderedDict[str, Any] = OrderedDict()
         self._max_size = max_size
         self._hits = 0
         self._misses = 0
-        logger.info(f"Initialized QueryCache with max_size={max_size}")
+        logger.info(f"Initialized QueryCache with max_size={max_size} (true LRU)")
 
     def _make_key(self, operation: str, query: str, **kwargs: Any) -> str:
         """Generate cache key from operation and query."""
@@ -174,7 +182,7 @@ class QueryCache:
 
     def get(self, operation: str, query: str, **kwargs: Any) -> Optional[Any]:
         """
-        Retrieve cached result for query operation.
+        Retrieve cached result for query operation with LRU tracking.
 
         Args:
             operation: Operation name (e.g., "rewrite", "expand", "decompose")
@@ -189,6 +197,8 @@ class QueryCache:
 
         if result is not None:
             self._hits += 1
+            # TRUE LRU: Move to end (most recently used)
+            self._cache.move_to_end(key)
             logger.debug(f"Cache HIT for {operation}: {query[:50]}")
         else:
             self._misses += 1
@@ -197,7 +207,7 @@ class QueryCache:
 
     def put(self, operation: str, query: str, result: Any, **kwargs: Any) -> None:
         """
-        Store operation result in cache.
+        Store operation result in cache with LRU eviction.
 
         Args:
             operation: Operation name
@@ -207,12 +217,17 @@ class QueryCache:
         """
         key = self._make_key(operation, query, **kwargs)
 
-        # Simple LRU eviction
-        if len(self._cache) >= self._max_size:
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
-            logger.debug(f"Evicted query result from cache (size={len(self._cache)})")
+        # If key exists, remove it (will be re-added at end)
+        if key in self._cache:
+            del self._cache[key]
 
+        # TRUE LRU eviction: Remove least recently used (first item)
+        if len(self._cache) >= self._max_size:
+            lru_key = next(iter(self._cache))
+            del self._cache[lru_key]
+            logger.debug(f"Evicted LRU query result from cache (size={len(self._cache)})")
+
+        # Add to end (most recently used)
         self._cache[key] = result
         logger.debug(f"Cached {operation} result: {query[:50]}")
 
