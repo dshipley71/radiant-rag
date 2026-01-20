@@ -389,6 +389,7 @@ class LLMClients:
         ollama_config: "OllamaConfig",
         local_config: "LocalModelsConfig",
         parsing_config: "ParsingConfig",
+        embedding_cache_size: int = 10000,
     ) -> "LLMClients":
         """
         Build all LLM clients from configuration.
@@ -397,11 +398,12 @@ class LLMClients:
             ollama_config: Ollama/LLM configuration
             local_config: Local models configuration
             parsing_config: Response parsing configuration
+            embedding_cache_size: Size of embedding cache (default 10000)
 
         Returns:
             LLMClients instance
         """
         return LLMClients(
             chat=LLMClient(ollama_config, parsing_config),
-            local=LocalNLPModels.build(local_config),
+            local=LocalNLPModels.build(local_config, cache_size=embedding_cache_size),
         )

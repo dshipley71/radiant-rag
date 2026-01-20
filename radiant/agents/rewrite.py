@@ -107,6 +107,67 @@ Return a JSON object: {"before": "original query", "after": "rewritten query"}""
 
         return before, after
 
+    def rewrite_batch(self, queries: list[str]) -> list[Tuple[str, str]]:
+        """
+        Rewrite multiple queries in a single LLM call for better performance.
+
+        Args:
+            queries: List of queries to rewrite
+
+        Returns:
+            List of tuples (original_query, rewritten_query)
+        """
+        if not queries:
+            return []
+
+        if len(queries) == 1:
+            return [self._execute(queries[0])]
+
+        # PERFORMANCE OPTIMIZATION: Batch rewrite in single LLM call
+        system = """You are a QueryRewriteAgent.
+Rewrite each query to maximize retrieval precision while preserving the original meaning.
+
+Consider:
+- Making implicit concepts explicit
+- Using more specific terminology
+- Removing filler words
+- Clarifying ambiguous references
+
+Return a JSON object: {"rewrites": [{"before": "original", "after": "rewritten"}, ...]}"""
+
+        queries_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(queries)])
+        user = f"Queries to rewrite:\n{queries_text}\n\nReturn JSON only."
+
+        result = self._chat_json(
+            system=system,
+            user=user,
+            default={"rewrites": [{"before": q, "after": q} for q in queries]},
+            expected_type=dict,
+        )
+
+        if not result or "rewrites" not in result:
+            return [(q, q) for q in queries]
+
+        rewrites = result.get("rewrites", [])
+        output = []
+
+        for i, query in enumerate(queries):
+            if i < len(rewrites) and isinstance(rewrites[i], dict):
+                before = str(rewrites[i].get("before", query)).strip() or query
+                after = str(rewrites[i].get("after", query)).strip() or query
+                output.append((before, after))
+
+                if before != after:
+                    self.logger.info(
+                        "Query rewritten (batch)",
+                        original=before[:50],
+                        rewritten=after[:50],
+                    )
+            else:
+                output.append((query, query))
+
+        return output
+
     def _on_error(
         self,
         error: Exception,

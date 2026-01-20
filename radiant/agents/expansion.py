@@ -98,17 +98,83 @@ Return a JSON array of strings."""
         if isinstance(result, list):
             expansions = [str(x).strip() for x in result if isinstance(x, str) and x.strip()]
             final_expansions = expansions[: self._config.max_expansions]
-            
+
             if final_expansions:
                 self.logger.info(
                     "Query expanded",
                     original=query[:50],
                     num_expansions=len(final_expansions),
                 )
-            
+
             return final_expansions
 
         return []
+
+    def expand_batch(self, queries: list[str]) -> List[List[str]]:
+        """
+        Expand multiple queries in a single LLM call for better performance.
+
+        Args:
+            queries: List of queries to expand
+
+        Returns:
+            List of expansion lists, one per query
+        """
+        if not queries:
+            return []
+
+        if len(queries) == 1:
+            return [self._execute(queries[0])]
+
+        # PERFORMANCE OPTIMIZATION: Batch expand in single LLM call
+        system = """You are a QueryExpansionAgent.
+Generate concise expansions for each query (synonyms, related terms, key entities).
+
+Guidelines:
+- Include synonyms and related terminology
+- Include relevant entities (people, places, concepts)
+- Keep expansions concise (1-3 words each)
+- Avoid generic terms that won't help retrieval
+
+Return a JSON object: {"expansions": [["term1", "term2"], ["term1", "term2"], ...]}
+One array per input query."""
+
+        queries_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(queries)])
+        user = f"Queries to expand:\n{queries_text}\n\nReturn JSON with 3-8 expansion terms per query."
+
+        result = self._chat_json(
+            system=system,
+            user=user,
+            default={"expansions": [[] for _ in queries]},
+            expected_type=dict,
+        )
+
+        if not result or "expansions" not in result:
+            return [[] for _ in queries]
+
+        expansions_list = result.get("expansions", [])
+        output = []
+
+        for i, query in enumerate(queries):
+            if i < len(expansions_list) and isinstance(expansions_list[i], list):
+                expansions = [
+                    str(x).strip()
+                    for x in expansions_list[i]
+                    if isinstance(x, str) and x.strip()
+                ]
+                final_expansions = expansions[: self._config.max_expansions]
+                output.append(final_expansions)
+
+                if final_expansions:
+                    self.logger.info(
+                        "Query expanded (batch)",
+                        original=query[:50],
+                        num_expansions=len(final_expansions),
+                    )
+            else:
+                output.append([])
+
+        return output
 
     def _on_error(
         self,
