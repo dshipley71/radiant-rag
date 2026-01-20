@@ -81,6 +81,7 @@ class RadiantRAG:
             self._config.ollama,
             self._config.local_models,
             self._config.parsing,
+            embedding_cache_size=self._config.performance.embedding_cache_size,
         )
         
         # Create vector store using factory (supports redis, chroma, pgvector)

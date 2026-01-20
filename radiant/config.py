@@ -680,6 +680,30 @@ class MetricsConfig:
 
 
 @dataclass(frozen=True)
+class PerformanceConfig:
+    """Performance optimization configuration."""
+    # Embedding cache settings
+    embedding_cache_enabled: bool = True
+    embedding_cache_size: int = 10000  # ~15MB RAM at 384-dim
+
+    # Query result cache settings (for LLM operations)
+    query_cache_enabled: bool = True
+    query_cache_size: int = 1000  # Cache decomposition, rewrite, expansion results
+
+    # Parallel execution settings
+    parallel_retrieval_enabled: bool = True  # Run dense + BM25 in parallel
+    parallel_postprocessing_enabled: bool = True  # Run fact verification + citation in parallel
+
+    # Early stopping settings
+    early_stopping_enabled: bool = True  # Skip expensive ops for simple queries
+    simple_query_max_words: int = 10  # Max words for query to be considered simple
+
+    # Retry optimization settings
+    cache_retrieval_on_retry: bool = True  # Reuse retrieval results across retries
+    targeted_retry_enabled: bool = True  # Only retry what failed, not full pipeline
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     """Pipeline feature flags."""
     use_planning: bool = True
@@ -822,6 +846,7 @@ class AppConfig:
     unstructured_cleaning: UnstructuredCleaningConfig
     logging: LoggingConfig
     metrics: MetricsConfig
+    performance: PerformanceConfig
     pipeline: PipelineConfig
     vlm: VLMCaptionerConfig
     web_crawler: WebCrawlerConfig
@@ -1188,6 +1213,19 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         history_retention=_get_config_value(data, "metrics", "history_retention", 100, _parse_int),
     )
 
+    performance = PerformanceConfig(
+        embedding_cache_enabled=_get_config_value(data, "performance", "embedding_cache_enabled", True, _parse_bool),
+        embedding_cache_size=_get_config_value(data, "performance", "embedding_cache_size", 10000, _parse_int),
+        query_cache_enabled=_get_config_value(data, "performance", "query_cache_enabled", True, _parse_bool),
+        query_cache_size=_get_config_value(data, "performance", "query_cache_size", 1000, _parse_int),
+        parallel_retrieval_enabled=_get_config_value(data, "performance", "parallel_retrieval_enabled", True, _parse_bool),
+        parallel_postprocessing_enabled=_get_config_value(data, "performance", "parallel_postprocessing_enabled", True, _parse_bool),
+        early_stopping_enabled=_get_config_value(data, "performance", "early_stopping_enabled", True, _parse_bool),
+        simple_query_max_words=_get_config_value(data, "performance", "simple_query_max_words", 10, _parse_int),
+        cache_retrieval_on_retry=_get_config_value(data, "performance", "cache_retrieval_on_retry", True, _parse_bool),
+        targeted_retry_enabled=_get_config_value(data, "performance", "targeted_retry_enabled", True, _parse_bool),
+    )
+
     pipeline = PipelineConfig(
         use_planning=_get_config_value(data, "pipeline", "use_planning", True, _parse_bool),
         use_decomposition=_get_config_value(data, "pipeline", "use_decomposition", True, _parse_bool),
@@ -1291,6 +1329,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         unstructured_cleaning=unstructured_cleaning,
         logging=logging_config,
         metrics=metrics,
+        performance=performance,
         pipeline=pipeline,
         vlm=vlm,
         web_crawler=web_crawler,
