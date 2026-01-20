@@ -316,36 +316,18 @@ class RadiantRAG:
         return stats
 
     def _ingest_flat(self, chunks: List[IngestedChunk]) -> int:
-        """Ingest chunks without hierarchical structure."""
+        """Ingest chunks without hierarchical structure using batch processing."""
         if not chunks:
             return 0
 
         ingestion_cfg = self._config.ingestion
-        
-        if not ingestion_cfg.batch_enabled:
-            # Synchronous mode (legacy)
-            stored = 0
-            for chunk in chunks:
-                doc_id = self._store.make_doc_id(chunk.content, chunk.meta)
-                embedding = self._llm_clients.local.embed_single(chunk.content)
-                
-                self._store.upsert(
-                    doc_id=doc_id,
-                    content=chunk.content,
-                    embedding=embedding,
-                    meta={**chunk.meta, "doc_level": "child"},
-                )
-                stored += 1
-            return stored
-
-        # Batch mode
         embed_batch_size = ingestion_cfg.embedding_batch_size
         redis_batch_size = ingestion_cfg.redis_batch_size
         stored = 0
 
         # Prepare all texts for batch embedding
         texts = [chunk.content for chunk in chunks]
-        
+
         # Generate embeddings in batches
         all_embeddings: List[List[float]] = []
         for i in range(0, len(texts), embed_batch_size):
@@ -393,57 +375,7 @@ class RadiantRAG:
         splitter = ChunkSplitter(child_size, child_overlap)
         embed_parents = ingestion_cfg.embed_parents
 
-        if not ingestion_cfg.batch_enabled:
-            # Synchronous mode (legacy)
-            stored = 0
-            for chunk in chunks:
-                # Parent document
-                parent_meta = {**chunk.meta, "doc_level": "parent"}
-                parent_id = self._store.make_doc_id(chunk.content, parent_meta)
-                
-                if embed_parents:
-                    # Embed and store parent
-                    parent_embedding = self._llm_clients.local.embed_single(chunk.content)
-                    self._store.upsert(
-                        doc_id=parent_id,
-                        content=chunk.content,
-                        embedding=parent_embedding,
-                        meta=parent_meta,
-                    )
-                else:
-                    # Store parent without embedding (original behavior)
-                    self._store.upsert_doc_only(
-                        doc_id=parent_id,
-                        content=chunk.content,
-                        meta=parent_meta,
-                    )
-                stored += 1
-
-                # Create child chunks
-                child_texts = splitter.split(chunk.content)
-                
-                for i, child_text in enumerate(child_texts):
-                    child_meta = {
-                        **chunk.meta,
-                        "doc_level": "child",
-                        "parent_id": parent_id,
-                        "child_index": i,
-                        "child_total": len(child_texts),
-                    }
-                    
-                    child_id = self._store.make_doc_id(child_text, child_meta)
-                    embedding = self._llm_clients.local.embed_single(child_text)
-                    
-                    self._store.upsert(
-                        doc_id=child_id,
-                        content=child_text,
-                        embedding=embedding,
-                        meta=child_meta,
-                    )
-                    stored += 1
-            return stored
-
-        # Batch mode
+        # Batch mode (always enabled for performance)
         embed_batch_size = ingestion_cfg.embedding_batch_size
         redis_batch_size = ingestion_cfg.redis_batch_size
         stored = 0

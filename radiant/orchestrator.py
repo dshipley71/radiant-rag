@@ -349,6 +349,41 @@ class RAGOrchestrator:
             f"citation={'enabled' if config.citation.enabled else 'disabled'})"
         )
 
+    def _is_simple_query(self, query: str) -> bool:
+        """
+        Determine if a query is simple enough for fast-path execution.
+
+        Simple queries can skip expensive operations like:
+        - Query decomposition
+        - Multi-hop reasoning
+        - Fact verification (when confidence is high)
+
+        Args:
+            query: User query text
+
+        Returns:
+            True if query is simple, False if complex
+        """
+        # Simple heuristics for query complexity
+        query_lower = query.lower().strip()
+        query_words = query_lower.split()
+
+        # Short queries are usually simple
+        if len(query_words) <= 5:
+            return True
+
+        # Questions with "what", "who", "when", "where" are usually simple
+        if any(query_lower.startswith(word) for word in ["what is", "who is", "when did", "where is"]):
+            return True
+
+        # Queries without complex conjunctions are simpler
+        complex_markers = ["and", "but", "also", "additionally", "furthermore", "moreover", "compare", "contrast"]
+        if not any(marker in query_lower for marker in complex_markers):
+            if len(query_words) <= 10:
+                return True
+
+        return False
+
     def run(
         self,
         query: str,
@@ -380,16 +415,29 @@ class RAGOrchestrator:
                 self._conversation.load_conversation(conversation_id)
                 ctx.conversation_history = self._conversation.get_history_for_synthesis()
 
+            # PERFORMANCE OPTIMIZATION: Detect simple queries for fast-path execution
+            is_simple = self._is_simple_query(query)
+            if is_simple:
+                logger.debug(f"[{ctx.run_id}] Detected simple query - using fast path")
+
             # Phase 1: Planning with dynamic mode selection
             plan = self._run_planning(ctx, metrics, plan_override)
-            
+
+            # EARLY STOPPING: Skip expensive operations for simple queries
+            if is_simple and not plan_override:
+                # Disable expensive operations that aren't needed for simple queries
+                plan["use_decomposition"] = False  # Skip query decomposition
+                plan["use_expansion"] = False  # Skip query expansion
+                # Keep rewrite as it's relatively cheap and can improve results
+                logger.debug(f"[{ctx.run_id}] Fast path: disabled decomposition and expansion")
+
             # Determine retrieval mode (override > plan > dynamic)
             if retrieval_mode and retrieval_mode in ("hybrid", "dense", "bm25"):
                 ctx.retrieval_mode = retrieval_mode
             else:
                 ctx.retrieval_mode = plan.get("retrieval_mode", "hybrid")
-            
-            logger.info(f"[{ctx.run_id}] Retrieval mode: {ctx.retrieval_mode}")
+
+            logger.info(f"[{ctx.run_id}] Retrieval mode: {ctx.retrieval_mode}, fast_path: {is_simple}")
 
             # Phase 2: Execute tools if any were selected
             if plan.get("tools_to_use") and self._tool_registry:
@@ -397,64 +445,93 @@ class RAGOrchestrator:
 
             # Main retrieval-generation loop with critic retry
             max_retries = self._agentic_config.max_critic_retries
-            
+
+            # PERFORMANCE OPTIMIZATION: Cache retrieval results to avoid re-fetching on retry
+            # Only re-retrieve if context evaluation suggests it
+            queries_cache = None
+            retrieval_done = False
+
             for attempt in range(max_retries + 1):
                 is_retry = attempt > 0
-                
+
                 if is_retry:
                     logger.info(f"[{ctx.run_id}] Retry attempt {attempt}/{max_retries}")
-                
-                # Phase 3: Query Processing
-                queries = self._run_query_processing(ctx, metrics, plan, is_retry)
 
-                # Phase 4: Retrieval
-                self._run_retrieval(ctx, metrics, queries, plan, ctx.retrieval_mode)
-
-                # Phase 5: Post-retrieval Processing
-                self._run_post_retrieval(ctx, metrics, plan)
-                
-                # Evaluate retrieval quality
-                ctx.retrieval_confidence = self._critic_agent.evaluate_retrieval_quality(
-                    ctx.original_query,
-                    ctx.reranked
+                # TARGETED RETRY: Only re-run query processing if we need different results
+                # On first attempt or if context eval suggests query modification
+                need_new_queries = (
+                    not is_retry
+                    or plan.get("use_expansion")
+                    or plan.get("use_rewrite")
+                    or queries_cache is None
                 )
 
-                # Phase 5.5: Pre-generation Context Evaluation (new)
-                context_eval = self._run_context_evaluation(ctx, metrics, plan)
-                
-                # If context is insufficient and we should abort, handle it
-                if context_eval and not context_eval.sufficient:
-                    if self._config.context_evaluation.abort_on_poor_context and context_eval.recommendation == "abort":
-                        logger.warning(f"[{ctx.run_id}] Aborting due to poor context quality")
-                        ctx.add_warning("Context quality too low for reliable answer")
-                        answer = self._generate_low_confidence_response(
-                            ctx,
-                            {
-                                "confidence": context_eval.confidence * 0.5,
-                                "issues": context_eval.missing_aspects,
-                            }
-                        )
-                        ctx.low_confidence_response = True
-                        break  # Exit retry loop
-                    elif context_eval.recommendation == "expand_retrieval" and attempt < max_retries:
-                        # Modify plan to expand retrieval on next attempt
-                        plan["use_expansion"] = True
-                        ctx.add_warning(f"Context evaluation suggests expansion: {', '.join(context_eval.suggestions[:2])}")
-                    elif context_eval.recommendation == "rewrite_query" and attempt < max_retries:
-                        plan["use_rewrite"] = True
-                        ctx.add_warning(f"Context evaluation suggests rewrite: {', '.join(context_eval.suggestions[:2])}")
+                if need_new_queries:
+                    # Phase 3: Query Processing
+                    queries = self._run_query_processing(ctx, metrics, plan, is_retry)
+                    queries_cache = queries
+                    retrieval_done = False
+                    logger.debug(f"[{ctx.run_id}] Generated {len(queries)} queries for retrieval")
+                else:
+                    # OPTIMIZATION: Reuse cached queries from previous attempt
+                    queries = queries_cache
+                    logger.debug(f"[{ctx.run_id}] Reusing {len(queries)} cached queries")
 
-                # Phase 5.6: Context Summarization (new)
-                self._run_context_summarization(ctx, metrics, plan)
+                # TARGETED RETRY: Only re-retrieve if context was insufficient or queries changed
+                if not retrieval_done or need_new_queries:
+                    # Phase 4: Retrieval
+                    self._run_retrieval(ctx, metrics, queries, plan, ctx.retrieval_mode)
 
-                # Phase 6: Generation
+                    # Phase 5: Post-retrieval Processing
+                    self._run_post_retrieval(ctx, metrics, plan)
+
+                    # Evaluate retrieval quality
+                    ctx.retrieval_confidence = self._critic_agent.evaluate_retrieval_quality(
+                        ctx.original_query,
+                        ctx.reranked
+                    )
+
+                    # Phase 5.5: Pre-generation Context Evaluation
+                    context_eval = self._run_context_evaluation(ctx, metrics, plan)
+
+                    # If context is insufficient and we should abort, handle it
+                    if context_eval and not context_eval.sufficient:
+                        if self._config.context_evaluation.abort_on_poor_context and context_eval.recommendation == "abort":
+                            logger.warning(f"[{ctx.run_id}] Aborting due to poor context quality")
+                            ctx.add_warning("Context quality too low for reliable answer")
+                            answer = self._generate_low_confidence_response(
+                                ctx,
+                                {
+                                    "confidence": context_eval.confidence * 0.5,
+                                    "issues": context_eval.missing_aspects,
+                                }
+                            )
+                            ctx.low_confidence_response = True
+                            break  # Exit retry loop
+                        elif context_eval.recommendation == "expand_retrieval" and attempt < max_retries:
+                            # Modify plan to expand retrieval on next attempt
+                            plan["use_expansion"] = True
+                            ctx.add_warning(f"Context evaluation suggests expansion: {', '.join(context_eval.suggestions[:2])}")
+                        elif context_eval.recommendation == "rewrite_query" and attempt < max_retries:
+                            plan["use_rewrite"] = True
+                            ctx.add_warning(f"Context evaluation suggests rewrite: {', '.join(context_eval.suggestions[:2])}")
+
+                    # Phase 5.6: Context Summarization
+                    self._run_context_summarization(ctx, metrics, plan)
+
+                    retrieval_done = True
+                else:
+                    # OPTIMIZATION: Skip retrieval, reuse previous results
+                    logger.info(f"[{ctx.run_id}] Reusing retrieval results from previous attempt")
+
+                # Phase 6: Generation (always run on retry as this is the core retry target)
                 answer = self._run_generation(ctx, metrics, plan, is_retry, attempt)
 
                 # Phase 7: Critique with confidence scoring
                 if plan.get("use_critic", True) and self._config.critic.enabled:
                     critique = self._run_critique(ctx, metrics, is_retry, attempt)
                     ctx.answer_confidence = critique.get("confidence", 0.5)
-                    
+
                     # Check if we should retry
                     if critique.get("should_retry", False) and attempt < max_retries:
                         # Record retry
@@ -463,21 +540,37 @@ class RAGOrchestrator:
                             previous_confidence=ctx.answer_confidence,
                             modifications={"attempt": attempt + 1}
                         )
-                        
-                        # Modify plan for retry
-                        if self._agentic_config.rewrite_on_retry:
-                            plan["use_rewrite"] = True
-                        if self._agentic_config.expand_retrieval_on_retry:
-                            plan["use_expansion"] = True
-                        
-                        # Maybe switch retrieval mode
-                        plan = self._planning_agent.plan_retry(
-                            query, plan, critique, attempt + 1
+
+                        # TARGETED RETRY: Determine what needs to change
+                        # Only modify plan if critic specifically identifies retrieval issues
+                        critique_issues = critique.get("issues", [])
+                        needs_more_context = any(
+                            "context" in issue.lower() or "information" in issue.lower()
+                            for issue in critique_issues
                         )
-                        ctx.retrieval_mode = plan.get("retrieval_mode", ctx.retrieval_mode)
-                        
+
+                        if needs_more_context:
+                            # Context issue - may need new retrieval
+                            if self._agentic_config.expand_retrieval_on_retry:
+                                plan["use_expansion"] = True
+                            if self._agentic_config.rewrite_on_retry:
+                                plan["use_rewrite"] = True
+                            retrieval_done = False
+                            logger.info(f"[{ctx.run_id}] Critic identified context issue - will re-retrieve")
+                        else:
+                            # Answer quality issue - just regenerate with feedback
+                            # Keep existing retrieval results
+                            logger.info(f"[{ctx.run_id}] Critic identified answer issue - will regenerate only")
+
+                        # Maybe switch retrieval mode (only if retrieval needed)
+                        if needs_more_context:
+                            plan = self._planning_agent.plan_retry(
+                                query, plan, critique, attempt + 1
+                            )
+                            ctx.retrieval_mode = plan.get("retrieval_mode", ctx.retrieval_mode)
+
                         continue  # Retry
-                    
+
                     # Check if we should give up
                     if self._critic_agent.should_give_up(critique, attempt):
                         answer = self._generate_low_confidence_response(
@@ -486,7 +579,7 @@ class RAGOrchestrator:
                         ctx.low_confidence_response = True
                 else:
                     ctx.answer_confidence = 0.5  # Default if critic disabled
-                
+
                 # Success - break retry loop
                 break
 
@@ -503,9 +596,22 @@ class RAGOrchestrator:
                 )
 
             # Phase 8: Fact Verification (post-generation)
-            fact_result = self._run_fact_verification(ctx, metrics, answer)
-            fact_score = fact_result.overall_score if fact_result else 1.0
-            fact_passed = fact_result.is_factual if fact_result else True
+            # PERFORMANCE OPTIMIZATION: Skip fact verification for simple queries with high confidence
+            should_verify_facts = (
+                self._fact_verification_agent is not None
+                and (not is_simple or ctx.answer_confidence < 0.8)
+            )
+
+            if should_verify_facts:
+                fact_result = self._run_fact_verification(ctx, metrics, answer)
+                fact_score = fact_result.overall_score if fact_result else 1.0
+                fact_passed = fact_result.is_factual if fact_result else True
+            else:
+                if is_simple and self._fact_verification_agent is not None:
+                    logger.debug(f"[{ctx.run_id}] Skipping fact verification for simple query with high confidence")
+                fact_result = None
+                fact_score = 1.0
+                fact_passed = True
             
             # Use corrected answer if available and fact verification suggests it
             if fact_result and fact_result.corrected_answer and fact_result.needs_correction:
@@ -776,27 +882,46 @@ class RAGOrchestrator:
         if retrieval_mode in ("hybrid", "dense"):
             with metrics.track_step("DenseRetrievalAgent") as step:
                 try:
+                    # PERFORMANCE OPTIMIZATION: Batch embed all queries upfront
+                    # This avoids N separate embedding calls (50-200ms each)
+                    # Batched: ~200ms total for N queries vs N*50ms sequentially
+                    from radiant.llm.client import LocalNLPModels
+                    local_models: LocalNLPModels = self._dense_retrieval._local_models
+
+                    if len(queries) > 1:
+                        logger.debug(f"[{ctx.run_id}] Batch embedding {len(queries)} queries for dense retrieval")
+                        query_embeddings = local_models.embed(queries)
+                    else:
+                        query_embeddings = [local_models.embed_single(queries[0])] if queries else []
+
                     all_results = []
                     seen_ids = set()
-                    for query in queries:
-                        result = self._dense_retrieval.run(
-                            correlation_id=ctx.run_id,
-                            query=query,
+
+                    # Now retrieve using pre-computed embeddings
+                    for query, query_embedding in zip(queries, query_embeddings):
+                        # Use the internal _retrieve method with pre-computed embedding
+                        from radiant.storage.base import BaseVectorStore
+                        store: BaseVectorStore = self._dense_retrieval._store
+                        config = self._dense_retrieval._config
+                        doc_level_filter = self._dense_retrieval._get_doc_level_filter()
+
+                        results = store.retrieve_by_embedding(
+                            query_embedding=query_embedding,
+                            top_k=config.dense_top_k,
+                            min_similarity=config.min_similarity,
+                            doc_level_filter=doc_level_filter,
                         )
-                        results = _extract_agent_data(
-                            result,
-                            default=[],
-                            agent_name="DenseRetrievalAgent",
-                            metrics_collector=self._metrics_collector,
-                        )
+
                         for doc, score in results:
                             doc_id = getattr(doc, 'doc_id', id(doc))
                             if doc_id not in seen_ids:
                                 seen_ids.add(doc_id)
                                 all_results.append((doc, score))
+
                     ctx.dense_retrieved = all_results
                     step.extra["num_retrieved"] = len(ctx.dense_retrieved)
                     step.extra["num_queries"] = len(queries)
+                    step.extra["batched_embeddings"] = True
                     step.extra["mode"] = "active"
                 except Exception as e:
                     logger.warning(f"Dense retrieval failed: {e}")
@@ -814,22 +939,21 @@ class RAGOrchestrator:
                 try:
                     all_results = []
                     seen_ids = set()
+
+                    # PERFORMANCE NOTE: BM25 searches are already optimized at index level
+                    # Future optimization: Add batch search support to PersistentBM25Index
+                    index = self._bm25_retrieval._index
+                    config = self._bm25_retrieval._config
+
                     for query in queries:
-                        result = self._bm25_retrieval.run(
-                            correlation_id=ctx.run_id,
-                            query=query,
-                        )
-                        results = _extract_agent_data(
-                            result,
-                            default=[],
-                            agent_name="BM25RetrievalAgent",
-                            metrics_collector=self._metrics_collector,
-                        )
+                        results = index.search(query, top_k=config.bm25_top_k)
+
                         for doc, score in results:
                             doc_id = getattr(doc, 'doc_id', id(doc))
                             if doc_id not in seen_ids:
                                 seen_ids.add(doc_id)
                                 all_results.append((doc, score))
+
                     ctx.bm25_retrieved = all_results
                     step.extra["num_retrieved"] = len(ctx.bm25_retrieved)
                     step.extra["num_queries"] = len(queries)
