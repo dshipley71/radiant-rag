@@ -182,7 +182,7 @@ class GitHubCrawler:
         owner, repo, branch, path = match.groups()
         
         # Clean repo name (remove .git suffix if present)
-        repo = repo.rstrip(".git")
+        repo = repo.removesuffix(".git")
         
         # Remove any remaining query string artifacts
         if "?" in repo:
