@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Radiant RAG - Print-Ready Architecture Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        @page { size: A4 landscape; margin: 0.5in; }
+        @media print {
+            .no-print { display: none !important; }
+            .page-break { page-break-after: always; }
+            body { font-size: 10px; }
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #fff;
+            color: #333;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        .sheet {
+            width: 100%;
+            max-width: 1100px;
+            margin: 0 auto 20px;
+            padding: 16px;
+            border: 1px solid #ddd;
+            background: #fff;
+        }
+        .sheet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #1a237e;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+        .sheet-header h2 {
+            font-size: 1.1rem;
+            color: #1a237e;
+        }
+        .sheet-header .tag {
+            font-size: 0.7rem;
+            background: #e8eaf6;
+            padding: 3px 8px;
+            border-radius: 10px;
+            color: #3949ab;
+        }
+        .diagram-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .diagram-box {
+            flex: 1;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 8px;
+            background: #fafafa;
+        }
+        .diagram-box.full { flex: none; width: 100%; }
+        .diagram-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #1a237e;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .mermaid { text-align: center; }
+        .print-btn {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            background: #1a237e;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .print-btn:hover { background: #3949ab; }
+        .legend-bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-size: 0.65rem;
+            margin-bottom: 8px;
+            padding: 6px 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .legend-bar span { display: flex; align-items: center; gap: 4px; }
+        .legend-bar .c { width: 12px; height: 12px; border-radius: 2px; }
+        .stats-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .stat {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            background: #1a237e;
+            color: #fff;
+            border-radius: 4px;
+        }
+        .stat-val { font-size: 1.2rem; font-weight: 700; }
+        .stat-lbl { font-size: 0.6rem; text-transform: uppercase; opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <button class="print-btn no-print" onclick="window.print()">🖨️ Print / Save PDF</button>
+
+    <!-- SHEET 1: Main Pipeline -->
+    <div class="sheet">
+        <div class="sheet-header">
+            <h2>🔆 Radiant RAG — Query Processing Pipeline</h2>
+            <span class="tag">Sheet 1 of 3</span>
+        </div>
+        
+        <div class="stats-row">
+            <div class="stat"><div class="stat-val">8</div><div class="stat-lbl">Phases</div></div>
+            <div class="stat"><div class="stat-val">20+</div><div class="stat-lbl">Agents</div></div>
+            <div class="stat"><div class="stat-val">3</div><div class="stat-lbl">Retrieval Modes</div></div>
+            <div class="stat"><div class="stat-val">93%</div><div class="stat-lbl">Latency ↓</div></div>
+            <div class="stat"><div class="stat-val">20×</div><div class="stat-lbl">Quant Speedup</div></div>
+        </div>
+
+        <div class="legend-bar">
+            <span><span class="c" style="background:#e3f2fd;border:1px solid #1565c0;"></span>Planning</span>
+            <span><span class="c" style="background:#fff3e0;border:1px solid #ef6c00;"></span>Query Processing</span>
+            <span><span class="c" style="background:#e8f5e9;border:1px solid #2e7d32;"></span>Retrieval</span>
+            <span><span class="c" style="background:#fce4ec;border:1px solid #c2185b;"></span>Post-Retrieval</span>
+            <span><span class="c" style="background:#f3e5f5;border:1px solid #7b1fa2;"></span>Generation</span>
+            <span><span class="c" style="background:#e0f7fa;border:1px solid #00838f;"></span>Verification</span>
+        </div>
+
+        <div class="diagram-box full">
+            <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'10px'},'flowchart':{'nodeSpacing':22,'rankSpacing':32,'padding':6,'curve':'basis'}}}%%
+flowchart LR
+    Q(["🔍 Query"])-->P1
+    subgraph P1["① PLAN"]
+        PA["Planning<br/>Agent"]
+    end
+    subgraph P2["② TOOLS"]
+        TC{Tools?}-->|Y|TL["Calc │ Code"]
+    end
+    subgraph P3["③ QUERY"]
+        QD[Decompose]-->QR[Rewrite]-->QE[Expand]
+    end
+    subgraph P4["④ RETRIEVE ⚡"]
+        DE[Dense]
+        BM[BM25]
+        WS[Web]
+    end
+    subgraph P5["⑤ POST-RETRIEVE"]
+        RF[RRF]-->AM[Merge]-->RK[Rerank]-->CE[Eval]
+    end
+    subgraph P6["⑥ GENERATE"]
+        MH{Hop?}-->|Y|MA[Multi<br/>Hop]-->SY[Synth]
+        MH-->|N|SY
+    end
+    subgraph P7["⑦ CRITIQUE"]
+        CR[Critic]-->CF{OK?}
+    end
+    subgraph P8["⑧ VERIFY ⚡"]
+        FV[Facts]
+        CT[Cite]
+    end
+    P1-->TC
+    TC-->|N|QD
+    TL-->QD
+    QE-->DE & BM & WS
+    DE & BM & WS-->RF
+    CE-->MH
+    SY-->CR
+    CF-->|N|QR
+    CF-->|Y|FV & CT
+    FV & CT-->R(["📄 Result"])
+    style P1 fill:#e3f2fd,stroke:#1565c0
+    style P2 fill:#fff3e0,stroke:#ef6c00
+    style P3 fill:#fff3e0,stroke:#ef6c00
+    style P4 fill:#e8f5e9,stroke:#2e7d32
+    style P5 fill:#fce4ec,stroke:#c2185b
+    style P6 fill:#f3e5f5,stroke:#7b1fa2
+    style P7 fill:#f3e5f5,stroke:#7b1fa2
+    style P8 fill:#e0f7fa,stroke:#00838f
+            </div>
+        </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- SHEET 2: Ingestion & Storage -->
+    <div class="sheet">
+        <div class="sheet-header">
+            <h2>🔆 Radiant RAG — Ingestion & Storage Architecture</h2>
+            <span class="tag">Sheet 2 of 3</span>
+        </div>
+
+        <div class="diagram-row">
+            <div class="diagram-box">
+                <div class="diagram-label">Document Ingestion Pipeline</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':18,'rankSpacing':25,'padding':5}}}%%
+flowchart TB
+    subgraph SRC["Sources"]
+        F["📁 Files"]
+        G["🐙 GitHub"]
+        W["🌐 Web"]
+        I["🖼️ Images"]
+    end
+    subgraph PROC["Processing"]
+        UN[Unstructured]
+        CC[CodeChunk]
+        VL[VLM Cap]
+        CL[Clean]
+    end
+    subgraph LANG["Language"]
+        LD[Detect]-->TR[Translate]
+    end
+    subgraph CHK["Chunking"]
+        HC[Hierarchical]
+        PA[Parents]
+        CH[Children]
+    end
+    subgraph EMB["Embedding"]
+        ST[SentenceXfmr]
+        QT[Quantize]
+    end
+    F & G & W-->UN
+    I-->VL
+    UN-->CC-->CL
+    VL-->CL
+    CL-->LD
+    TR-->HC-->PA & CH
+    PA & CH-->ST-->QT
+    style SRC fill:#e3f2fd,stroke:#1565c0
+    style PROC fill:#fff3e0,stroke:#ef6c00
+    style LANG fill:#f3e5f5,stroke:#7b1fa2
+    style CHK fill:#e8f5e9,stroke:#2e7d32
+    style EMB fill:#fce4ec,stroke:#c2185b
+                </div>
+            </div>
+            <div class="diagram-box">
+                <div class="diagram-label">Storage Backend Options</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':18,'rankSpacing':25,'padding':5}}}%%
+flowchart TB
+    CFG["config.yaml"]-->FAC{backend}
+    FAC-->|redis|RED
+    FAC-->|chroma|CHR
+    FAC-->|pgvector|PGV
+    subgraph RED["🔴 Redis"]
+        R1[HNSW]
+        R2[BinQuant]
+        R3[Realtime]
+    end
+    subgraph CHR["🟡 Chroma"]
+        C1[Embedded]
+        C2[Persist]
+        C3[Simple]
+    end
+    subgraph PGV["🔵 PgVector"]
+        P1[ACID]
+        P2[SQL]
+        P3[Scale]
+    end
+    subgraph BM25["📚 BM25"]
+        B1[JSON.gz]
+        B2[Incremental]
+    end
+    RED & CHR & PGV-.->BM25
+    style RED fill:#ffebee,stroke:#c62828
+    style CHR fill:#fff8e1,stroke:#f9a825
+    style PGV fill:#e3f2fd,stroke:#1565c0
+    style BM25 fill:#f3e5f5,stroke:#7b1fa2
+                </div>
+            </div>
+        </div>
+
+        <div class="diagram-row">
+            <div class="diagram-box">
+                <div class="diagram-label">Retrieval Detail — Hybrid Search</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':16,'rankSpacing':22,'padding':4}}}%%
+flowchart LR
+    Q[Query]-->|parallel|D & B
+    subgraph D["Dense Path"]
+        EM[Embed]-->CA{Cache?}
+        CA-->|Y|QU{Quant?}
+        CA-->|N|QU
+        QU-->|Y|BIN[Binary]-->RES[Rescore]
+        QU-->|N|HNSW[Full]
+    end
+    subgraph B["BM25 Path"]
+        TK[Tokenize]-->IDF[IDF]-->TF[Score]
+    end
+    RES & HNSW & TF-->RRF["RRF Fusion<br/>Σ1/(k+rank)"]
+    RRF-->OUT[Fused]
+    style D fill:#e8f5e9,stroke:#2e7d32
+    style B fill:#fff3e0,stroke:#ef6c00
+                </div>
+            </div>
+            <div class="diagram-box">
+                <div class="diagram-label">Critic Retry Loop</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':16,'rankSpacing':22,'padding':4}}}%%
+flowchart TB
+    GEN[Generate]-->CRIT[Critic]
+    CRIT-->PASS{Pass?}
+    PASS-->|Y|DONE["✓ Verify"]
+    PASS-->|N|ISS{Issue?}
+    ISS-->|Context|EXP[Expand+Rewrite]-->RET[Re-retrieve]-->GEN
+    ISS-->|Answer|GEN
+    ISS-->|MaxRetry|LOW["⚠ Low Conf"]
+    style DONE fill:#e8f5e9,stroke:#2e7d32
+    style LOW fill:#ffebee,stroke:#c62828
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- SHEET 3: Agents & Multi-Hop -->
+    <div class="sheet">
+        <div class="sheet-header">
+            <h2>🔆 Radiant RAG — Agent Architecture & Multi-Hop Reasoning</h2>
+            <span class="tag">Sheet 3 of 3</span>
+        </div>
+
+        <div class="diagram-box full">
+            <div class="diagram-label">Agent Class Hierarchy (20+ Agents)</div>
+            <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':14,'rankSpacing':28,'padding':4}}}%%
+flowchart LR
+    BA["🏗️ BaseAgent<br/>───────<br/>Metrics • Logging<br/>Error Handling"]
+    BA-->LLMA["LLMAgent"]
+    BA-->RETA["RetrievalAgent"]
+    BA-->DIRA["Direct"]
+    subgraph LLM["LLM-Based (12)"]
+        direction TB
+        L1[Plan]
+        L2[Decompose]
+        L3[Rewrite]
+        L4[Expand]
+        L5[Synthesis]
+        L6[Critic]
+        L7[CtxEval]
+        L8[FactVerify]
+        L9[Citation]
+        L10[WebSearch]
+        L11[Summarize]
+        L12[Translate]
+    end
+    subgraph RET["Retrieval (1)"]
+        R1[Dense]
+    end
+    subgraph DIR["Non-LLM (5)"]
+        direction TB
+        D1[BM25]
+        D2[RRF]
+        D3[Rerank]
+        D4[AutoMerge]
+        D5[MultiHop]
+    end
+    LLMA-->LLM
+    RETA-->RET
+    DIRA-->DIR
+    style BA fill:#1a237e,color:#fff,stroke:#1a237e
+    style LLMA fill:#3949ab,color:#fff,stroke:#3949ab
+    style RETA fill:#3949ab,color:#fff,stroke:#3949ab
+    style DIRA fill:#3949ab,color:#fff,stroke:#3949ab
+    style LLM fill:#e8eaf6,stroke:#3949ab
+    style RET fill:#e8eaf6,stroke:#3949ab
+    style DIR fill:#e8eaf6,stroke:#3949ab
+            </div>
+        </div>
+
+        <div class="diagram-row">
+            <div class="diagram-box">
+                <div class="diagram-label">Multi-Hop Reasoning Flow</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':16,'rankSpacing':22,'padding':4}}}%%
+flowchart TB
+    Q["Complex Query"]-->DET{Multi-Hop<br/>Needed?}
+    DET-->|No|SIMPLE["Single Retrieve"]
+    DET-->|Yes|DEC["Decompose<br/>Sub-Questions"]
+    DEC-->LOOP
+    subgraph LOOP["Iterative Hops"]
+        H1["Hop 1: Retrieve"]-->E1["Extract Answer"]
+        E1-->C1{Confident?}
+        C1-->|No|STOP1[Stop]
+        C1-->|Yes|S1{Enough?}
+        S1-->|Yes|DONE[Done]
+        S1-->|No|H2["Hop 2: Use A₁"]
+        H2-->E2[Extract]-->MORE["..."]
+    end
+    LOOP-->COMB["Combine Context"]
+    COMB-->DEDUP[Deduplicate]
+    DEDUP-->RES["MultiHopResult"]
+    style LOOP fill:#e8eaf6,stroke:#3949ab
+                </div>
+            </div>
+            <div class="diagram-box">
+                <div class="diagram-label">Performance Optimizations</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':14,'rankSpacing':20,'padding':4}}}%%
+flowchart TB
+    subgraph CACHE["💾 Caching"]
+        EC[Embed Cache]
+        QC[Query Cache]
+    end
+    subgraph PAR["⚡ Parallel"]
+        P1[Dense+BM25]
+        P2[Fact+Cite]
+        P3[Batch Ops]
+    end
+    subgraph QUANT["📦 Quantization"]
+        BQ[Binary 32×]
+        I8[Int8 4×]
+        TS[Two-Stage]
+    end
+    subgraph EARLY["🛑 Early Stop"]
+        SD[Simple Detect]
+        SK[Skip Agents]
+    end
+    subgraph RETRY["🎯 Targeted"]
+        CT[Context vs Answer]
+        RO[Regen Only]
+    end
+    CACHE-->|"avoid recompute"|OUT[93% Faster]
+    PAR-->|"50% retrieval"|OUT
+    QUANT-->|"20× search"|OUT
+    EARLY-->|"skip overhead"|OUT
+    RETRY-->|"minimal redo"|OUT
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'base',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radiant RAG - Executive Summary</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #fff;
+            color: #333;
+            font-size: 12px;
+        }
+        .page {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #1a237e;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+        .header h1 {
+            font-size: 1.4rem;
+            color: #1a237e;
+            font-weight: 700;
+        }
+        .header .version {
+            font-size: 0.75rem;
+            color: #666;
+            background: #e8eaf6;
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .kpi {
+            background: linear-gradient(135deg, #1a237e 0%, #3949ab 100%);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .kpi-value { font-size: 1.3rem; font-weight: 700; }
+        .kpi-label { font-size: 0.65rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .card {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .card-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #1a237e;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e8eaf6;
+        }
+        .mermaid {
+            font-size: 10px !important;
+        }
+        .pipeline-card {
+            grid-column: 1 / -1;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px 16px;
+            font-size: 0.7rem;
+        }
+        .feature-list li {
+            list-style: none;
+            padding: 2px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .feature-list li::before {
+            content: "✓";
+            color: #2e7d32;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        .tech-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #e8eaf6;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            margin: 2px;
+            color: #3949ab;
+        }
+        .phase-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .phase-legend span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.65rem;
+        }
+        .phase-legend .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+        .footer {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.65rem;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="header">
+            <div>
+                <h1>🔆 Radiant RAG System Architecture</h1>
+                <div style="color:#666;font-size:0.8rem;margin-top:4px;">Agentic Retrieval-Augmented Generation Platform</div>
+            </div>
+            <div class="version">v1.5.0 | Jan 2025</div>
+        </div>
+
+        <div class="kpi-row">
+            <div class="kpi"><div class="kpi-value">20+</div><div class="kpi-label">Agents</div></div>
+            <div class="kpi"><div class="kpi-value">8</div><div class="kpi-label">Pipeline Phases</div></div>
+            <div class="kpi"><div class="kpi-value">3</div><div class="kpi-label">Storage Backends</div></div>
+            <div class="kpi"><div class="kpi-value">176</div><div class="kpi-label">Languages</div></div>
+            <div class="kpi"><div class="kpi-value">93%</div><div class="kpi-label">Latency Reduction</div></div>
+            <div class="kpi"><div class="kpi-value">20×</div><div class="kpi-label">Quantization Speedup</div></div>
+        </div>
+
+        <div class="card pipeline-card">
+            <div class="card-title">Query Processing Pipeline</div>
+            <div class="phase-legend">
+                <span><span class="dot" style="background:#e3f2fd;border:1px solid #1565c0;"></span>Plan</span>
+                <span><span class="dot" style="background:#fff3e0;border:1px solid #ef6c00;"></span>Query Process</span>
+                <span><span class="dot" style="background:#e8f5e9;border:1px solid #2e7d32;"></span>Retrieve</span>
+                <span><span class="dot" style="background:#fce4ec;border:1px solid #c2185b;"></span>Post-Retrieve</span>
+                <span><span class="dot" style="background:#f3e5f5;border:1px solid #7b1fa2;"></span>Generate</span>
+                <span><span class="dot" style="background:#e0f7fa;border:1px solid #00838f;"></span>Verify</span>
+            </div>
+            <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'9px'},'flowchart':{'nodeSpacing':20,'rankSpacing':30,'padding':5}}}%%
+flowchart LR
+    Q([Query])-->PA[Plan]
+    PA-->TC{Tools?}
+    TC-->|Y|TL[Calc/Code]-->QD
+    TC-->|N|QD[Decompose]
+    QD-->QR[Rewrite]-->QE[Expand]
+    QE-->|"⚡parallel"|DE[Dense]
+    QE-->|"⚡parallel"|BM[BM25]
+    QE-->|optional|WS[Web]
+    DE & BM & WS-->RF[RRF]
+    RF-->AM[Merge]-->RK[Rerank]-->CE[Eval]
+    CE-->MH{MultiHop?}
+    MH-->|Y|MA[Reason]-->SY[Synth]
+    MH-->|N|SY
+    SY-->CR[Critic]
+    CR-->CF{Pass?}
+    CF-->|N|QR
+    CF-->|Y|FV[Facts]
+    CF-->|Y|CT[Cite]
+    FV & CT-->R([Result])
+    style PA fill:#e3f2fd,stroke:#1565c0
+    style QD fill:#fff3e0,stroke:#ef6c00
+    style QR fill:#fff3e0,stroke:#ef6c00
+    style QE fill:#fff3e0,stroke:#ef6c00
+    style DE fill:#e8f5e9,stroke:#2e7d32
+    style BM fill:#e8f5e9,stroke:#2e7d32
+    style WS fill:#e8f5e9,stroke:#2e7d32
+    style RF fill:#fce4ec,stroke:#c2185b
+    style AM fill:#fce4ec,stroke:#c2185b
+    style RK fill:#fce4ec,stroke:#c2185b
+    style CE fill:#fce4ec,stroke:#c2185b
+    style SY fill:#f3e5f5,stroke:#7b1fa2
+    style CR fill:#f3e5f5,stroke:#7b1fa2
+    style MA fill:#f3e5f5,stroke:#7b1fa2
+    style FV fill:#e0f7fa,stroke:#00838f
+    style CT fill:#e0f7fa,stroke:#00838f
+            </div>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-title">Ingestion Pipeline</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'8px'},'flowchart':{'nodeSpacing':15,'rankSpacing':20,'padding':4}}}%%
+flowchart TB
+    S["📁Files 🐙GitHub 🌐Web"]-->P[Parse]
+    P-->L[Lang Detect]-->T[Translate]
+    T-->C[Chunk]
+    C-->E[Embed]-->Q[Quantize]
+    Q-->ST[("Store")]
+    style S fill:#e3f2fd,stroke:#1565c0
+    style ST fill:#eceff1,stroke:#546e7a
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">Storage Options</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'8px'},'flowchart':{'nodeSpacing':15,'rankSpacing':20,'padding':4}}}%%
+flowchart TB
+    CFG[Config]-->F{Backend}
+    F-->R["🔴Redis<br/>HNSW+Quant"]
+    F-->C["🟡Chroma<br/>Embedded"]
+    F-->P["🔵PgVector<br/>ACID"]
+    R & C & P-.->B["📚BM25"]
+    style R fill:#ffebee,stroke:#c62828
+    style C fill:#fff8e1,stroke:#f9a825
+    style P fill:#e3f2fd,stroke:#1565c0
+    style B fill:#f3e5f5,stroke:#7b1fa2
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">Retry Loop</div>
+                <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'8px'},'flowchart':{'nodeSpacing':15,'rankSpacing':20,'padding':4}}}%%
+flowchart TB
+    G[Generate]-->C[Critic]
+    C-->OK{Pass?}
+    OK-->|Y|V[✓Verify]
+    OK-->|N|I{Issue?}
+    I-->|Context|E[Expand]-->G
+    I-->|Answer|G
+    I-->|Max|L[⚠LowConf]
+    style V fill:#e8f5e9,stroke:#2e7d32
+    style L fill:#ffebee,stroke:#c62828
+                </div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">Key Capabilities</div>
+                <ul class="feature-list">
+                    <li>Hybrid search (Dense + BM25 + Web)</li>
+                    <li>Multi-hop reasoning for complex queries</li>
+                    <li>Automatic fact verification</li>
+                    <li>Citation tracking with audit trail</li>
+                    <li>Binary/Int8 quantization (20× speedup)</li>
+                    <li>Parallel retrieval execution</li>
+                    <li>176-language support with translation</li>
+                    <li>Hierarchical document chunking</li>
+                    <li>Cross-encoder reranking</li>
+                    <li>Critic-driven quality assurance</li>
+                    <li>Strategy memory for adaptive behavior</li>
+                    <li>Prometheus/OpenTelemetry metrics</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-title">Technology Stack</div>
+                <div style="margin-bottom:8px;">
+                    <strong style="font-size:0.65rem;color:#666;">LLM & Embeddings</strong><br/>
+                    <span class="tech-badge">Ollama</span>
+                    <span class="tech-badge">SentenceTransformers</span>
+                    <span class="tech-badge">CrossEncoder</span>
+                </div>
+                <div style="margin-bottom:8px;">
+                    <strong style="font-size:0.65rem;color:#666;">Storage</strong><br/>
+                    <span class="tech-badge">Redis + RediSearch</span>
+                    <span class="tech-badge">ChromaDB</span>
+                    <span class="tech-badge">PostgreSQL + pgvector</span>
+                </div>
+                <div style="margin-bottom:8px;">
+                    <strong style="font-size:0.65rem;color:#666;">Document Processing</strong><br/>
+                    <span class="tech-badge">Unstructured</span>
+                    <span class="tech-badge">AST Parsing</span>
+                    <span class="tech-badge">VLM Captioning</span>
+                </div>
+                <div>
+                    <strong style="font-size:0.65rem;color:#666;">Interfaces</strong><br/>
+                    <span class="tech-badge">CLI</span>
+                    <span class="tech-badge">TUI (Textual)</span>
+                    <span class="tech-badge">Python API</span>
+                    <span class="tech-badge">REST</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Agent Architecture (20+ Specialized Agents)</div>
+            <div class="mermaid">
+%%{init:{'theme':'base','themeVariables':{'fontSize':'8px'},'flowchart':{'nodeSpacing':12,'rankSpacing':25,'padding':4}}}%%
+flowchart LR
+    BA["🏗️BaseAgent"]-->LLMA["LLMAgent"]
+    BA-->RETA["RetrievalAgent"]
+    BA-->DIR["Direct"]
+    LLMA-->L1[Plan]
+    LLMA-->L2[Decompose]
+    LLMA-->L3[Rewrite]
+    LLMA-->L4[Expand]
+    LLMA-->L5[Synthesis]
+    LLMA-->L6[Critic]
+    LLMA-->L7[CtxEval]
+    LLMA-->L8[FactVerify]
+    LLMA-->L9[Citation]
+    LLMA-->L10[WebSearch]
+    LLMA-->L11[Summarize]
+    LLMA-->L12[Translate]
+    RETA-->R1[Dense]
+    DIR-->D1[BM25]
+    DIR-->D2[RRF]
+    DIR-->D3[Rerank]
+    DIR-->D4[AutoMerge]
+    DIR-->D5[MultiHop]
+    style BA fill:#1a237e,color:#fff
+    style LLMA fill:#5c6bc0,color:#fff
+    style RETA fill:#5c6bc0,color:#fff
+    style DIR fill:#5c6bc0,color:#fff
+            </div>
+        </div>
+
+        <div class="footer">
+            <div>Radiant RAG v1.5.0 | MIT License | ~29,000 lines of Python</div>
+            <div>Generated: Executive Architecture Summary</div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'base',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+        });
+    </script>
+</body>
+</html>
