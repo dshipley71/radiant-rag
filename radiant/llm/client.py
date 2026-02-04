@@ -30,6 +30,23 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# HTTP status codes that indicate a non-retryable client error.
+# Retrying these wastes time since the request itself is invalid.
+_NON_RETRYABLE_STATUS_CODES = (400, 401, 403, 404, 422)
+
+
+def _is_non_retryable(error: Exception) -> bool:
+    """Check if an error is a non-retryable client error (4xx)."""
+    err_str = str(error)
+    for code in _NON_RETRYABLE_STATUS_CODES:
+        if f"Error code: {code}" in err_str or f"status_code: {code}" in err_str:
+            return True
+    # Also check for openai-specific exception attributes
+    status = getattr(error, "status_code", None) or getattr(error, "status", None)
+    if isinstance(status, int) and 400 <= status < 500:
+        return True
+    return False
+
 
 class JSONParser:
     """
@@ -347,6 +364,11 @@ class LLMClient:
             except Exception as e:
                 last_error = str(e)
                 logger.warning(f"LLM request failed (attempt {attempt + 1}/{max_retries}): {e}")
+
+                # Don't retry on non-retryable client errors (400, 401, etc.)
+                if _is_non_retryable(e):
+                    logger.debug("Non-retryable error, skipping remaining attempts")
+                    break
 
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
