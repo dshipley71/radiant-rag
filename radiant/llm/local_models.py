@@ -9,6 +9,8 @@ Provides sentence-transformers based models for:
 from __future__ import annotations
 
 import logging
+import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 
@@ -19,6 +21,41 @@ if TYPE_CHECKING:
     from radiant.config import LocalModelsConfig
 
 logger = logging.getLogger(__name__)
+
+# Loggers that produce noisy output during model loading
+_NOISY_LOADING_LOGGERS = (
+    "sentence_transformers",
+    "safetensors",
+    "accelerate",
+    "accelerate.utils.modeling",
+    "transformers.modeling_utils",
+)
+
+
+@contextmanager
+def _quiet_model_loading():
+    """
+    Suppress noisy warnings during sentence-transformer model loading.
+
+    Temporarily raises log levels for chatty libraries and filters warnings
+    like "The following layers were not sharded" (safetensors/accelerate) and
+    UNEXPECTED key reports (sentence-transformers LOAD REPORT) that are
+    expected and harmless for small single-file models.
+    """
+    prev_levels = {}
+    for name in _NOISY_LOADING_LOGGERS:
+        lgr = logging.getLogger(name)
+        prev_levels[name] = lgr.level
+        lgr.setLevel(logging.ERROR)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*not sharded.*")
+        warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
+        try:
+            yield
+        finally:
+            for name, level in prev_levels.items():
+                logging.getLogger(name).setLevel(level)
 
 
 def _resolve_device(pref: str) -> str:
@@ -68,8 +105,9 @@ class LocalNLPModels:
         device = _resolve_device(config.device)
         logger.info(f"Loading local models on device: {device}")
 
-        embedder = SentenceTransformer(config.embed_model_name, device=device)
-        cross_encoder = CrossEncoder(config.cross_encoder_name, device=device)
+        with _quiet_model_loading():
+            embedder = SentenceTransformer(config.embed_model_name, device=device)
+            cross_encoder = CrossEncoder(config.cross_encoder_name, device=device)
 
         # Get actual embedding dimension
         embedding_dim = embedder.get_sentence_embedding_dimension()
