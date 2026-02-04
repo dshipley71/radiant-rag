@@ -158,11 +158,22 @@ class SummarizationAgent:
             Query-focused summary
         """
         max_length = max_length or self._target_length
-        
+
         # Don't summarize if already short enough
         if len(content) <= max_length:
             return content
-        
+
+        # Guard against content that would exceed LLM token limits.
+        # ~4 chars/token is a conservative estimate; cap at 100K chars
+        # (~25K tokens) to leave headroom for system prompt and response.
+        max_input_chars = 100_000
+        if len(content) > max_input_chars:
+            logger.debug(
+                f"Truncating content from {len(content)} to {max_input_chars} "
+                f"chars before summarization to stay within token limits"
+            )
+            content = content[:max_input_chars]
+
         system = """You are a document summarization specialist for a RAG system.
 Create a concise summary that preserves information relevant to answering the query.
 
