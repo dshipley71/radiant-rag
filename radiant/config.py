@@ -1499,9 +1499,12 @@ def setup_logging(config: LoggingConfig) -> None:
             "transformers": logging.WARNING,
             "transformers.modeling_utils": logging.WARNING,
 
-            # Accelerate - suppress memory allocation info
-            "accelerate": logging.WARNING,
-            "accelerate.utils.modeling": logging.WARNING,
+            # Accelerate - suppress sharding and memory allocation warnings
+            "accelerate": logging.ERROR,
+            "accelerate.utils.modeling": logging.ERROR,
+
+            # Safetensors - suppress "not sharded" warnings for single-file models
+            "safetensors": logging.ERROR,
 
             # Unstructured - suppress misleading "text extraction failed" (it's expected for OCR)
             "unstructured": logging.WARNING,
