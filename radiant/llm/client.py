@@ -91,10 +91,75 @@ class JSONParser:
         # Remove trailing commas before } or ]
         json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
 
-        # Remove comments (// style)
-        json_str = re.sub(r"//.*$", "", json_str, flags=re.MULTILINE)
+        # Remove comment-only lines (// style).
+        # Only strip lines that begin with optional whitespace then //
+        # to avoid corrupting URLs (https://...) inside JSON strings.
+        json_str = re.sub(r"^\s*//[^\n]*$", "", json_str, flags=re.MULTILINE)
 
         return json_str
+
+    @classmethod
+    def repair_truncated_json(cls, json_str: str) -> Optional[str]:
+        """
+        Attempt to repair JSON truncated by LLM max_tokens limits.
+
+        Walks the string tracking open/close brackets and quotes,
+        then appends whatever closing characters are needed.
+
+        Args:
+            json_str: Potentially truncated JSON string
+
+        Returns:
+            Repaired JSON string, or None if repair is not feasible
+        """
+        if not json_str:
+            return None
+
+        # Strip trailing whitespace and incomplete trailing tokens
+        # (e.g. a key name that was cut off mid-word)
+        repaired = json_str.rstrip()
+
+        # Track nesting state
+        stack: list[str] = []  # expected closing chars
+        in_string = False
+        escape_next = False
+
+        for ch in repaired:
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                stack.append("}")
+            elif ch == "[":
+                stack.append("]")
+            elif ch in ("}", "]"):
+                if stack and stack[-1] == ch:
+                    stack.pop()
+
+        # If nothing to close, repair won't help
+        if not stack and not in_string:
+            return None
+
+        # Close open string if needed
+        if in_string:
+            repaired += '"'
+
+        # Remove a possible trailing comma before we close containers
+        repaired = re.sub(r",\s*$", "", repaired)
+
+        # Close all open containers in reverse order
+        repaired += "".join(reversed(stack))
+
+        return repaired
 
     @classmethod
     def parse(
@@ -129,20 +194,29 @@ class JSONParser:
         # Attempt parsing
         try:
             result = json.loads(json_str)
-
-            # Validate type if specified
-            if expected_type is not None:
-                if expected_type == dict and not isinstance(result, dict):
-                    logger.warning(f"Expected dict but got {type(result).__name__}")
+        except json.JSONDecodeError:
+            # Try repairing truncated JSON (common with LLM max_tokens limits)
+            repaired = cls.repair_truncated_json(json_str)
+            if repaired:
+                try:
+                    result = json.loads(repaired)
+                    logger.debug("Parsed JSON after truncation repair")
+                except json.JSONDecodeError as e2:
+                    logger.debug(f"JSON parse error after repair attempt: {e2}")
                     return default
-                if expected_type == list and not isinstance(result, list):
-                    logger.warning(f"Expected list but got {type(result).__name__}")
-                    return default
+            else:
+                return default
 
-            return result
-        except json.JSONDecodeError as e:
-            logger.debug(f"JSON parse error: {e}")
-            return default
+        # Validate type if specified
+        if expected_type is not None:
+            if expected_type == dict and not isinstance(result, dict):
+                logger.warning(f"Expected dict but got {type(result).__name__}")
+                return default
+            if expected_type == list and not isinstance(result, list):
+                logger.warning(f"Expected list but got {type(result).__name__}")
+                return default
+
+        return result
 
 
 @dataclass
