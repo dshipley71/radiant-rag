@@ -82,6 +82,79 @@ local_models:
   embedding_dimension: 384
 
 # -----------------------------------------------------------------------------
+# NEW: Backend Configuration (Flexible Model Selection)
+# -----------------------------------------------------------------------------
+# These new sections allow you to independently configure backends for:
+# - LLM (chat/generation)
+# - Embeddings
+# - Reranking
+#
+# If these sections are not present, the system falls back to using the
+# ollama and local_models configurations above for backward compatibility.
+#
+# Supported backend types:
+# - ollama: Ollama API
+# - vllm: vLLM OpenAI-compatible API
+# - openai: OpenAI API
+# - local: Local HuggingFace models
+# -----------------------------------------------------------------------------
+
+# LLM Backend Configuration
+# Uncomment and configure to use a different LLM backend
+# llm_backend:
+#   # Backend type: ollama | vllm | openai | local
+#   backend_type: "ollama"
+#
+#   # For ollama, vllm, openai backends:
+#   base_url: "http://localhost:11434/v1"
+#   api_key: "ollama"
+#   model: "gemma3:12b"
+#
+#   # For local backend (HuggingFace Transformers):
+#   # model_name: "meta-llama/Llama-2-7b-chat-hf"
+#   # device: "auto"
+#   # load_in_4bit: false
+#   # load_in_8bit: false
+#
+#   # Common settings:
+#   timeout: 90
+#   max_retries: 3
+#   retry_delay: 1.0
+
+# Embedding Backend Configuration
+# Uncomment and configure to use a different embedding backend
+# embedding_backend:
+#   # Backend type: local | ollama | vllm | openai
+#   backend_type: "local"
+#
+#   # For local backend (sentence-transformers or HuggingFace):
+#   model_name: "sentence-transformers/all-MiniLM-L12-v2"
+#   device: "auto"
+#   embedding_dimension: 384
+#   cache_size: 10000
+#
+#   # For ollama, vllm, openai backends:
+#   # base_url: "http://localhost:11434/v1"
+#   # api_key: "ollama"
+#   # model: "nomic-embed-text"
+#   # embedding_dimension: 768
+
+# Reranking Backend Configuration
+# Uncomment and configure to use a different reranking backend
+# reranking_backend:
+#   # Backend type: local | ollama | vllm | openai
+#   backend_type: "local"
+#
+#   # For local backend (cross-encoder):
+#   model_name: "cross-encoder/ms-marco-MiniLM-L12-v2"
+#   device: "auto"
+#
+#   # For ollama, vllm, openai backends (uses LLM for scoring):
+#   # base_url: "http://localhost:11434/v1"
+#   # api_key: "ollama"
+#   # model: "gemma3:12b"
+
+# -----------------------------------------------------------------------------
 # Storage Backend Selection
 # -----------------------------------------------------------------------------
 # Choose which vector database backend to use for document storage.

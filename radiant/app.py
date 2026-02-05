@@ -82,6 +82,10 @@ class RadiantRAG:
             self._config.local_models,
             self._config.parsing,
             embedding_cache_size=self._config.performance.embedding_cache_size,
+            # New backend configurations (optional, uses old config if not provided)
+            llm_backend_config=self._config.llm_backend,
+            embedding_backend_config=self._config.embedding_backend,
+            reranking_backend_config=self._config.reranking_backend,
         )
         
         # Create vector store using factory (supports redis, chroma, pgvector)

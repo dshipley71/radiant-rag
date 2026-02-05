@@ -180,6 +180,89 @@ class LocalModelsConfig:
 
 
 @dataclass(frozen=True)
+class LLMBackendConfig:
+    """
+    LLM backend configuration.
+
+    Supports multiple backend types:
+    - ollama: Ollama API (default)
+    - vllm: vLLM OpenAI-compatible API
+    - openai: OpenAI API
+    - local: Local HuggingFace Transformers models
+    """
+    # Backend type
+    backend_type: str = "ollama"
+
+    # OpenAI-compatible settings (for ollama, vllm, openai)
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+    # HuggingFace settings (for local backend)
+    model_name: Optional[str] = None
+    device: str = "auto"
+    load_in_4bit: bool = False
+    load_in_8bit: bool = False
+
+    # Common settings
+    timeout: int = 90
+    max_retries: int = 3
+    retry_delay: float = 1.0
+
+
+@dataclass(frozen=True)
+class EmbeddingBackendConfig:
+    """
+    Embedding backend configuration.
+
+    Supports multiple backend types:
+    - local: Local HuggingFace/sentence-transformers models (default)
+    - ollama: Ollama embedding API
+    - vllm: vLLM embedding API
+    - openai: OpenAI embedding API
+    """
+    # Backend type
+    backend_type: str = "local"
+
+    # Model settings
+    model_name: Optional[str] = "sentence-transformers/all-MiniLM-L12-v2"
+    device: str = "auto"
+    embedding_dimension: int = 384
+
+    # OpenAI-compatible settings (for ollama, vllm, openai)
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+    # Performance
+    cache_size: int = 10000
+
+
+@dataclass(frozen=True)
+class RerankingBackendConfig:
+    """
+    Reranking backend configuration.
+
+    Supports multiple backend types:
+    - local: Local cross-encoder models (default)
+    - ollama: Use Ollama LLM for reranking
+    - vllm: Use vLLM for reranking
+    - openai: Use OpenAI for reranking
+    """
+    # Backend type
+    backend_type: str = "local"
+
+    # Cross-encoder settings (for local backend)
+    model_name: Optional[str] = "cross-encoder/ms-marco-MiniLM-L12-v2"
+    device: str = "auto"
+
+    # API settings (for ollama, vllm, openai)
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class VectorIndexConfig:
     """Redis vector index configuration."""
     name: str = "radiant_vectors"
@@ -820,6 +903,9 @@ class AppConfig:
     """Main application configuration."""
     ollama: OllamaConfig
     local_models: LocalModelsConfig
+    llm_backend: LLMBackendConfig
+    embedding_backend: EmbeddingBackendConfig
+    reranking_backend: RerankingBackendConfig
     storage: StorageConfig
     redis: RedisConfig
     chroma: ChromaConfig
@@ -954,6 +1040,83 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         device=_get_config_value(data, "local_models", "device", "auto"),
         embedding_dimension=_get_config_value(data, "local_models", "embedding_dimension", 384, _parse_int),
     )
+
+    # New backend configurations (with fallback to old config for backward compatibility)
+    # Check if new llm_backend section exists
+    has_llm_backend = "llm_backend" in data and data["llm_backend"] is not None
+
+    if has_llm_backend:
+        # Use new configuration format
+        llm_backend = LLMBackendConfig(
+            backend_type=_get_config_value(data, "llm_backend", "backend_type", "ollama"),
+            base_url=_get_config_value(data, "llm_backend", "base_url", None) or None,
+            api_key=_get_config_value(data, "llm_backend", "api_key", None) or None,
+            model=_get_config_value(data, "llm_backend", "model", None) or None,
+            model_name=_get_config_value(data, "llm_backend", "model_name", None) or None,
+            device=_get_config_value(data, "llm_backend", "device", "auto"),
+            load_in_4bit=_get_config_value(data, "llm_backend", "load_in_4bit", False, _parse_bool),
+            load_in_8bit=_get_config_value(data, "llm_backend", "load_in_8bit", False, _parse_bool),
+            timeout=_get_config_value(data, "llm_backend", "timeout", 90, _parse_int),
+            max_retries=_get_config_value(data, "llm_backend", "max_retries", 3, _parse_int),
+            retry_delay=_get_config_value(data, "llm_backend", "retry_delay", 1.0, _parse_float),
+        )
+    else:
+        # Fallback to old ollama config
+        llm_backend = LLMBackendConfig(
+            backend_type="ollama",
+            base_url=ollama.openai_base_url,
+            api_key=ollama.openai_api_key,
+            model=ollama.chat_model,
+            timeout=ollama.timeout,
+            max_retries=ollama.max_retries,
+            retry_delay=ollama.retry_delay,
+        )
+
+    # Check if new embedding_backend section exists
+    has_embedding_backend = "embedding_backend" in data and data["embedding_backend"] is not None
+
+    if has_embedding_backend:
+        # Use new configuration format
+        embedding_backend = EmbeddingBackendConfig(
+            backend_type=_get_config_value(data, "embedding_backend", "backend_type", "local"),
+            model_name=_get_config_value(data, "embedding_backend", "model_name", "sentence-transformers/all-MiniLM-L12-v2"),
+            device=_get_config_value(data, "embedding_backend", "device", "auto"),
+            embedding_dimension=_get_config_value(data, "embedding_backend", "embedding_dimension", 384, _parse_int),
+            base_url=_get_config_value(data, "embedding_backend", "base_url", None) or None,
+            api_key=_get_config_value(data, "embedding_backend", "api_key", None) or None,
+            model=_get_config_value(data, "embedding_backend", "model", None) or None,
+            cache_size=_get_config_value(data, "embedding_backend", "cache_size", 10000, _parse_int),
+        )
+    else:
+        # Fallback to old local_models config
+        embedding_backend = EmbeddingBackendConfig(
+            backend_type="local",
+            model_name=local_models.embed_model_name,
+            device=local_models.device,
+            embedding_dimension=local_models.embedding_dimension,
+            cache_size=10000,
+        )
+
+    # Check if new reranking_backend section exists
+    has_reranking_backend = "reranking_backend" in data and data["reranking_backend"] is not None
+
+    if has_reranking_backend:
+        # Use new configuration format
+        reranking_backend = RerankingBackendConfig(
+            backend_type=_get_config_value(data, "reranking_backend", "backend_type", "local"),
+            model_name=_get_config_value(data, "reranking_backend", "model_name", "cross-encoder/ms-marco-MiniLM-L12-v2"),
+            device=_get_config_value(data, "reranking_backend", "device", "auto"),
+            base_url=_get_config_value(data, "reranking_backend", "base_url", None) or None,
+            api_key=_get_config_value(data, "reranking_backend", "api_key", None) or None,
+            model=_get_config_value(data, "reranking_backend", "model", None) or None,
+        )
+    else:
+        # Fallback to old local_models config
+        reranking_backend = RerankingBackendConfig(
+            backend_type="local",
+            model_name=local_models.cross_encoder_name,
+            device=local_models.device,
+        )
 
     vector_index = VectorIndexConfig(
         name=_get_nested_config_value(data, "redis", "vector_index", "name", "radiant_vectors"),
@@ -1303,6 +1466,9 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     return AppConfig(
         ollama=ollama,
         local_models=local_models,
+        llm_backend=llm_backend,
+        embedding_backend=embedding_backend,
+        reranking_backend=reranking_backend,
         storage=storage,
         redis=redis,
         chroma=chroma,
