@@ -81,9 +81,10 @@ Consider:
 - Removing filler words
 - Clarifying ambiguous references
 
-Return a JSON object: {"before": "original query", "after": "rewritten query"}"""
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format: {"before": "original query", "after": "rewritten query"}"""
 
-        user = f"Query: {query}\n\nReturn JSON only."
+        user = f"Query: {query}\n\nReturn raw JSON only, no code blocks."
 
         result = self._chat_json(
             system=system,
@@ -133,10 +134,11 @@ Consider:
 - Removing filler words
 - Clarifying ambiguous references
 
-Return a JSON object: {"rewrites": [{"before": "original", "after": "rewritten"}, ...]}"""
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format: {"rewrites": [{"before": "original", "after": "rewritten"}, ...]}"""
 
         queries_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(queries)])
-        user = f"Queries to rewrite:\n{queries_text}\n\nReturn JSON only."
+        user = f"Queries to rewrite:\n{queries_text}\n\nReturn raw JSON only, no code blocks."
 
         result = self._chat_json(
             system=system,

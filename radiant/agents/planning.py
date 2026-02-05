@@ -156,12 +156,12 @@ Consider:
 - Mathematical queries should use the calculator tool
 - Queries requiring data manipulation may benefit from code execution
 
-Return ONLY a JSON object with the plan."""
+Return ONLY raw JSON with no markdown formatting. Do not wrap in ```json code blocks."""
 
         user = f"Query: {query}"
         if context:
             user += f"\n\nContext: {context}"
-        user += "\n\nReturn JSON plan only."
+        user += "\n\nReturn raw JSON only, no code blocks."
 
         result = self._chat_json(
             system=system,
@@ -258,9 +258,9 @@ Modify the plan to address the issues. Consider:
 - Enabling expansion if query is too narrow
 - Using web search if content might be outdated
 
-Return a modified JSON plan."""
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks."""
 
-        user = f"Query: {query}\n\nReturn modified JSON plan only."
+        user = f"Query: {query}\n\nReturn raw JSON plan only, no code blocks."
 
         result = self._chat_json(
             system=system,
