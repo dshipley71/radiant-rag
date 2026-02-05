@@ -24,7 +24,15 @@ from haystack.utils import Secret
 from radiant.llm.local_models import LocalNLPModels
 
 if TYPE_CHECKING:
-    from radiant.config import LocalModelsConfig, OllamaConfig, ParsingConfig
+    from radiant.config import (
+        LocalModelsConfig,
+        OllamaConfig,
+        ParsingConfig,
+        LLMBackendConfig,
+        EmbeddingBackendConfig,
+        RerankingBackendConfig,
+    )
+    from radiant.llm.backends.base import BaseLLMBackend, BaseEmbeddingBackend, BaseRerankingBackend
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +477,244 @@ class LLMClient:
         return default, response
 
 
+class LLMClientBackendAdapter:
+    """
+    Adapter that wraps a BaseLLMBackend to provide the LLMClient interface.
+
+    Maintains backward compatibility with existing code.
+    """
+
+    def __init__(
+        self,
+        backend: "BaseLLMBackend",
+        parsing_config: "ParsingConfig",
+    ) -> None:
+        """
+        Initialize adapter.
+
+        Args:
+            backend: LLM backend implementation
+            parsing_config: Response parsing configuration
+        """
+        self._backend = backend
+        self._parsing_config = parsing_config
+
+    @staticmethod
+    def create_messages(system: str, user: str) -> List[ChatMessage]:
+        """
+        Create chat messages for a request.
+
+        Args:
+            system: System prompt
+            user: User message
+
+        Returns:
+            List of ChatMessage objects
+        """
+        return [
+            ChatMessage.from_system(system),
+            ChatMessage.from_user(user),
+        ]
+
+    def chat(
+        self,
+        messages: List[ChatMessage],
+        retry_on_error: bool = True,
+    ) -> LLMResponse:
+        """
+        Send chat request to LLM.
+
+        Args:
+            messages: Chat messages
+            retry_on_error: Whether to retry on failures (ignored for backends)
+
+        Returns:
+            LLMResponse object
+        """
+        # Convert Haystack ChatMessages to dict format
+        message_dicts = []
+        for msg in messages:
+            # Extract role from meta if available
+            role = getattr(msg, 'role', None)
+            if role is None:
+                role = msg.meta.get('role', 'user') if hasattr(msg, 'meta') and msg.meta else 'user'
+
+            # Extract content
+            if hasattr(msg, 'text'):
+                content = msg.text
+            elif hasattr(msg, 'content'):
+                content = msg.content
+            else:
+                content = str(msg)
+
+            message_dicts.append({"role": role.value if hasattr(role, 'value') else str(role), "content": content})
+
+        try:
+            # Call backend
+            backend_response = self._backend.chat(message_dicts)
+
+            # Convert backend response to LLMResponse
+            return LLMResponse(
+                content=backend_response.content,
+                raw_response=backend_response.meta,
+                success=True,
+                retries=0,
+                latency_ms=backend_response.meta.get("latency_ms", 0.0),
+            )
+
+        except Exception as e:
+            logger.error(f"LLM backend request failed: {e}")
+            return LLMResponse(
+                content="",
+                raw_response={},
+                success=False,
+                error=str(e),
+                retries=0,
+                latency_ms=0.0,
+            )
+
+    def chat_json(
+        self,
+        system: str,
+        user: str,
+        default: Optional[T] = None,
+        expected_type: Optional[Type[T]] = None,
+        retry_on_parse_error: bool = True,
+    ) -> tuple[Union[Dict[str, Any], List[Any], T, None], LLMResponse]:
+        """
+        Send chat request expecting JSON response.
+
+        Args:
+            system: System prompt
+            user: User message
+            default: Default value if parsing fails
+            expected_type: Expected JSON type (dict or list)
+            retry_on_parse_error: Whether to retry on JSON parse failures
+
+        Returns:
+            Tuple of (parsed_data, LLMResponse)
+        """
+        messages = self.create_messages(system, user)
+        response = self.chat(messages)
+
+        if not response.success:
+            return default, response
+
+        # Try to parse JSON
+        parsed = JSONParser.parse(
+            response.content,
+            default=None,
+            expected_type=expected_type,
+        )
+
+        if parsed is not None:
+            return parsed, response
+
+        # Parsing failed
+        if self._parsing_config.log_failures:
+            logger.warning(
+                f"Failed to parse JSON from LLM response. "
+                f"Raw content: {response.content[:500]}..."
+            )
+
+        return default, response
+
+
+class LocalNLPModelsBackendAdapter:
+    """
+    Adapter that wraps embedding and reranking backends to provide the LocalNLPModels interface.
+
+    Maintains backward compatibility with existing code.
+    """
+
+    def __init__(
+        self,
+        embedding_backend: "BaseEmbeddingBackend",
+        reranking_backend: "BaseRerankingBackend",
+        embedding_dim: int,
+    ) -> None:
+        """
+        Initialize adapter.
+
+        Args:
+            embedding_backend: Embedding backend implementation
+            reranking_backend: Reranking backend implementation
+            embedding_dim: Embedding dimension
+        """
+        self._embedding_backend = embedding_backend
+        self._reranking_backend = reranking_backend
+        self.embedding_dim = embedding_dim
+
+    def embed(
+        self,
+        texts: List[str],
+        normalize: bool = True,
+        use_cache: bool = True,
+    ) -> List[List[float]]:
+        """
+        Generate embeddings for texts.
+
+        Args:
+            texts: List of texts to embed
+            normalize: Whether to L2-normalize
+            use_cache: Whether to use embedding cache (always True for backends with built-in caching)
+
+        Returns:
+            List of embedding vectors
+        """
+        return self._embedding_backend.embed(
+            texts=texts,
+            normalize=normalize,
+            show_progress=False,
+            batch_size=32,
+        )
+
+    def embed_single(
+        self,
+        text: str,
+        normalize: bool = True,
+        use_cache: bool = True,
+    ) -> List[float]:
+        """
+        Generate embedding for a single text.
+
+        Args:
+            text: Text to embed
+            normalize: Whether to L2-normalize
+            use_cache: Whether to use embedding cache (always True for backends with built-in caching)
+
+        Returns:
+            Embedding vector
+        """
+        return self._embedding_backend.embed_single(
+            text=text,
+            normalize=normalize,
+        )
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[str],
+        top_k: Optional[int] = None,
+    ) -> List[tuple[int, float]]:
+        """
+        Rerank documents by relevance to query.
+
+        Args:
+            query: Query text
+            documents: List of document texts
+            top_k: Optional limit on results
+
+        Returns:
+            List of (document_index, score) tuples, sorted by score descending
+        """
+        return self._reranking_backend.rerank(
+            query=query,
+            documents=documents,
+            top_k=top_k,
+        )
+
+
 @dataclass(frozen=True)
 class LLMClients:
     """
@@ -486,20 +732,117 @@ class LLMClients:
         local_config: "LocalModelsConfig",
         parsing_config: "ParsingConfig",
         embedding_cache_size: int = 10000,
+        # New backend configurations (optional)
+        llm_backend_config: Optional["LLMBackendConfig"] = None,
+        embedding_backend_config: Optional["EmbeddingBackendConfig"] = None,
+        reranking_backend_config: Optional["RerankingBackendConfig"] = None,
     ) -> "LLMClients":
         """
         Build all LLM clients from configuration.
 
+        Supports both old configuration format (ollama_config + local_config) and
+        new backend configuration format (llm_backend_config + embedding_backend_config + reranking_backend_config).
+
         Args:
-            ollama_config: Ollama/LLM configuration
-            local_config: Local models configuration
+            ollama_config: Ollama/LLM configuration (old format, used as fallback)
+            local_config: Local models configuration (old format, used as fallback)
             parsing_config: Response parsing configuration
             embedding_cache_size: Size of embedding cache (default 10000)
+            llm_backend_config: Optional LLM backend configuration (new format)
+            embedding_backend_config: Optional embedding backend configuration (new format)
+            reranking_backend_config: Optional reranking backend configuration (new format)
 
         Returns:
             LLMClients instance
         """
-        return LLMClients(
-            chat=LLMClient(ollama_config, parsing_config),
-            local=LocalNLPModels.build(local_config, cache_size=embedding_cache_size),
+        # Check if new backend configurations are provided
+        use_new_backends = (
+            llm_backend_config is not None
+            or embedding_backend_config is not None
+            or reranking_backend_config is not None
         )
+
+        if use_new_backends:
+            # Use new backend system
+            logger.info("Using new backend configuration system")
+
+            from radiant.llm.backends.factory import (
+                create_llm_backend,
+                create_embedding_backend,
+                create_reranking_backend,
+            )
+
+            # Create LLM backend (or fallback to ollama)
+            if llm_backend_config is not None:
+                llm_backend = create_llm_backend(llm_backend_config)
+                chat_client = LLMClientBackendAdapter(llm_backend, parsing_config)
+            else:
+                # Fallback to old config
+                logger.info("LLM backend: using ollama config (fallback)")
+                chat_client = LLMClient(ollama_config, parsing_config)
+
+            # Create embedding backend (or fallback to local)
+            if embedding_backend_config is not None:
+                embedding_backend = create_embedding_backend(embedding_backend_config)
+            else:
+                # Fallback to old config
+                logger.info("Embedding backend: using local_config (fallback)")
+                from radiant.llm.backends.embedding_backends import SentenceTransformersEmbeddingBackend
+                embedding_backend = SentenceTransformersEmbeddingBackend(
+                    model_name=local_config.embed_model_name,
+                    device=local_config.device,
+                    cache_size=embedding_cache_size,
+                )
+
+            # Create reranking backend (or fallback to local)
+            if reranking_backend_config is not None:
+                # If reranking uses LLM, pass the LLM backend
+                if reranking_backend_config.backend_type in ["ollama", "vllm", "openai"]:
+                    # Get the LLM backend
+                    if llm_backend_config is not None:
+                        llm_backend_for_rerank = create_llm_backend(llm_backend_config)
+                    else:
+                        # Need to create an LLM backend from ollama config
+                        from radiant.config import LLMBackendConfig
+                        temp_llm_config = LLMBackendConfig(
+                            backend_type="ollama",
+                            base_url=ollama_config.openai_base_url,
+                            api_key=ollama_config.openai_api_key,
+                            model=ollama_config.chat_model,
+                        )
+                        llm_backend_for_rerank = create_llm_backend(temp_llm_config)
+
+                    reranking_backend = create_reranking_backend(
+                        reranking_backend_config,
+                        llm_backend=llm_backend_for_rerank,
+                    )
+                else:
+                    reranking_backend = create_reranking_backend(reranking_backend_config)
+            else:
+                # Fallback to old config
+                logger.info("Reranking backend: using local_config (fallback)")
+                from radiant.llm.backends.reranking_backends import CrossEncoderRerankingBackend
+                reranking_backend = CrossEncoderRerankingBackend(
+                    model_name=local_config.cross_encoder_name,
+                    device=local_config.device,
+                )
+
+            # Create LocalNLPModels wrapper using backends
+            local_models = LocalNLPModelsBackendAdapter(
+                embedding_backend=embedding_backend,
+                reranking_backend=reranking_backend,
+                embedding_dim=embedding_backend.embedding_dimension,
+            )
+
+            return LLMClients(
+                chat=chat_client,
+                local=local_models,
+            )
+
+        else:
+            # Use old configuration system (backward compatibility)
+            logger.info("Using legacy ollama/local_models configuration")
+            return LLMClients(
+                chat=LLMClient(ollama_config, parsing_config),
+                local=LocalNLPModels.build(local_config, cache_size=embedding_cache_size),
+            )
