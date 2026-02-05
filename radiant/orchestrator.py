@@ -1100,8 +1100,30 @@ class RAGOrchestrator:
                         logger.warning(f"BM25 retrieval failed: {e}")
                         raise
 
-        # Web search (if enabled and requested by plan)
-        if self._web_search_agent and plan.get("use_web_search", False):
+        # Web search (if enabled and requested by plan OR fallback if no docs retrieved)
+        should_use_web_search = False
+        fallback_triggered = False
+
+        if self._web_search_agent:
+            # Check if planner requested web search
+            if plan.get("use_web_search", False):
+                should_use_web_search = True
+                logger.debug("Web search requested by planner")
+            else:
+                # Fallback: Use web search if no documents were retrieved
+                num_dense = len(ctx.dense_retrieved) if ctx.dense_retrieved else 0
+                num_bm25 = len(ctx.bm25_retrieved) if ctx.bm25_retrieved else 0
+
+                if num_dense == 0 and num_bm25 == 0:
+                    should_use_web_search = True
+                    fallback_triggered = True
+                    logger.info("No documents retrieved from vector database - triggering web search fallback")
+
+        if should_use_web_search:
+            # Update plan to indicate web search should run (needed for agent's _should_search check)
+            if fallback_triggered:
+                plan = dict(plan)
+                plan["use_web_search"] = True
             with metrics.track_step("WebSearchAgent") as step:
                 try:
                     result = self._web_search_agent.run(
