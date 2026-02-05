@@ -84,9 +84,9 @@ Guidelines:
 - Keep expansions concise (1-3 words each)
 - Avoid generic terms that won't help retrieval
 
-Return a JSON array of strings."""
+Return ONLY raw JSON array with no markdown formatting. Do not wrap in ```json code blocks."""
 
-        user = f"Query: {query}\n\nReturn JSON array of 3-8 expansion terms."
+        user = f"Query: {query}\n\nReturn raw JSON array of 3-8 expansion terms, no code blocks."
 
         result = self._chat_json(
             system=system,
@@ -136,11 +136,12 @@ Guidelines:
 - Keep expansions concise (1-3 words each)
 - Avoid generic terms that won't help retrieval
 
-Return a JSON object: {"expansions": [["term1", "term2"], ["term1", "term2"], ...]}
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format: {"expansions": [["term1", "term2"], ["term1", "term2"], ...]}
 One array per input query."""
 
         queries_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(queries)])
-        user = f"Queries to expand:\n{queries_text}\n\nReturn JSON with 3-8 expansion terms per query."
+        user = f"Queries to expand:\n{queries_text}\n\nReturn raw JSON with 3-8 expansion terms per query, no code blocks."
 
         result = self._chat_json(
             system=system,

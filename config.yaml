@@ -842,7 +842,7 @@ web_crawler:
 web_search:
   # Enable/disable web search during queries
   # When enabled, the PlanningAgent can decide to search the web
-  enabled: false
+  enabled: true
 
   # Maximum number of URLs to consider per query
   max_results: 5

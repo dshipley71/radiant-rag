@@ -80,14 +80,15 @@ class QueryDecompositionAgent(LLMAgent):
 If the query is complex or contains multiple distinct questions, decompose it into independent sub-queries.
 If the query is simple and doesn't need decomposition, return it as-is.
 
-Return a JSON array of strings. Each string should be a complete, self-contained query.
+Return ONLY raw JSON array with no markdown formatting. Do not wrap in ```json code blocks.
+Each string should be a complete, self-contained query.
 Maximum sub-queries: Return at most 5 sub-queries.
 
 Examples:
 - "What is Python and how does it compare to Java?" -> ["What is Python?", "How does Python compare to Java?"]
 - "Tell me about climate change" -> ["Tell me about climate change"]"""
 
-        user = f"Query: {query}\n\nReturn JSON array only."
+        user = f"Query: {query}\n\nReturn raw JSON array only, no code blocks."
 
         result = self._chat_json(
             system=system,

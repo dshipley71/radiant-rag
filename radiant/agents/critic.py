@@ -140,7 +140,8 @@ Evaluate the answer for:
 3. Coverage: Does it cover all important aspects? (0-10)
 4. Accuracy: Are there any factual errors or unsupported claims?
 {retry_context}
-Return a JSON object:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {{
   "ok": true/false (true if answer is acceptable),
   "confidence": 0.0-1.0 (overall confidence in the answer),
@@ -174,7 +175,7 @@ CONTEXT:
 ANSWER:
 {answer}
 
-Return JSON critique only."""
+Return raw JSON critique only, no code blocks."""
 
         result = self._chat_json(
             system=system,

@@ -102,12 +102,12 @@ However, still suggest other authoritative sources if they're clearly more relev
 
         system += """
 
-Return ONLY a JSON array of URLs, no explanation.
+Return ONLY raw JSON array with no markdown formatting. Do not wrap in ```json code blocks.
 Example: ["https://en.wikipedia.org/wiki/Topic", "https://docs.example.com/guide"]
 
 If no good URLs come to mind, return an empty array: []"""
 
-        user = f"Query: {query}\n\nReturn JSON array of URLs only."
+        user = f"Query: {query}\n\nReturn raw JSON array only, no code blocks."
 
         result = self._chat_json(
             system=system,
