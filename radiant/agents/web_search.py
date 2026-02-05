@@ -83,14 +83,24 @@ class WebSearchAgent(LLMAgent):
         """
         Use LLM to suggest URLs that might contain relevant information.
         """
-        system = """You are a search assistant. Given a query, suggest 1-3 specific URLs 
+        system = """You are a search assistant. Given a query, suggest 1-3 specific URLs
 that are likely to contain authoritative, relevant information.
 
 Focus on:
 - Official documentation sites
 - Wikipedia for factual queries
 - News sites for current events
-- Government/academic sites for research topics
+- Government/academic sites for research topics"""
+
+        # Add preferred domains guidance if configured
+        if self._config.preferred_domains:
+            domains_str = ", ".join(self._config.preferred_domains)
+            system += f"""
+
+Prioritize these domains when relevant: {domains_str}
+However, still suggest other authoritative sources if they're clearly more relevant to the query."""
+
+        system += """
 
 Return ONLY a JSON array of URLs, no explanation.
 Example: ["https://en.wikipedia.org/wiki/Topic", "https://docs.example.com/guide"]
