@@ -188,14 +188,15 @@ Multi-hop reasoning is needed when:
 3. Comparison between multiple entities requiring separate lookups
 4. Temporal reasoning requiring multiple events to be connected
 
-Return JSON:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {
   "requires_multihop": true/false,
   "reason": "brief explanation",
   "estimated_hops": 1-3
 }"""
 
-        user = f"Query: {query}\n\nReturn JSON only."
+        user = f"Query: {query}\n\nReturn raw JSON only, no code blocks."
         
         result, response = self._llm.chat_json(
             system=system,
@@ -330,7 +331,7 @@ Return JSON:
     
     def _decompose_query(self, query: str) -> List[str]:
         """Decompose a complex query into sub-questions."""
-        
+
         system = """Decompose this complex query into sequential sub-questions.
 
 Each sub-question should:
@@ -338,7 +339,8 @@ Each sub-question should:
 2. Build toward answering the original query
 3. Be ordered so earlier answers help answer later questions
 
-Return JSON:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {
   "sub_questions": ["Question 1", "Question 2", "Question 3"],
   "reasoning_type": "bridge|comparison|temporal|compositional"
@@ -346,7 +348,7 @@ Return JSON:
 
 Maximum 3 sub-questions."""
 
-        user = f"Query: {query}\n\nReturn JSON only."
+        user = f"Query: {query}\n\nReturn raw JSON only, no code blocks."
         
         result, response = self._llm.chat_json(
             system=system,
@@ -414,7 +416,8 @@ Maximum 3 sub-questions."""
 Also extract any named entities (people, organizations, places, dates) that might
 be useful for follow-up questions.
 
-Return JSON:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {
   "answer": "concise answer extracted from context",
   "confidence": 0.0-1.0,
@@ -431,14 +434,14 @@ If the answer is not in the context, return:
 }"""
 
         prior_info = f"\nPrior knowledge: {prior_knowledge}" if prior_knowledge else ""
-        
+
         user = f"""Question: {question}
 {prior_info}
 
 Context:
 {context}
 
-Return JSON only."""
+Return raw JSON only, no code blocks."""
 
         result, response = self._llm.chat_json(
             system=system,
@@ -469,7 +472,8 @@ Return JSON only."""
         
         system = """Determine if the accumulated knowledge is sufficient to answer the query.
 
-Return JSON:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {
   "sufficient": true/false,
   "missing": "what's still needed (if not sufficient)"
@@ -479,7 +483,7 @@ Return JSON:
 
 Accumulated knowledge: {accumulated}
 
-Return JSON only."""
+Return raw JSON only, no code blocks."""
 
         result, response = self._llm.chat_json(
             system=system,

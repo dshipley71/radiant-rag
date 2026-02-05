@@ -86,11 +86,21 @@ class WebSearchAgent(LLMAgent):
         system = """You are a search assistant. Given a query, suggest 1-3 specific URLs
 that are likely to contain authoritative, relevant information.
 
-Focus on:
-- Official documentation sites
-- Wikipedia for factual queries
-- News sites for current events
-- Government/academic sites for research topics"""
+CRITICAL: Only suggest URLs you are CERTAIN exist. Use well-known, stable domains.
+Do NOT invent URLs - if uncertain about the exact path, suggest the domain homepage.
+
+Reliable sources:
+- Wikipedia: https://en.wikipedia.org/wiki/[Topic] (for factual queries)
+- ArXiv: https://arxiv.org/ (for research papers)
+- GitHub: https://github.com/ (for code/technical topics)
+- Official documentation sites (Python.org, Mozilla MDN, etc.)
+- News sites: Reuters, AP News, BBC (for current events)
+- Government/academic sites (.gov, .edu domains)
+
+AVOID inventing specific article URLs. When in doubt, use homepage URLs like:
+- https://en.wikipedia.org/ (then user can search)
+- https://stackoverflow.com/
+- https://github.com/"""
 
         # Add preferred domains guidance if configured
         if self._config.preferred_domains:
