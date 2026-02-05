@@ -991,7 +991,14 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 
     # Build configuration with environment overrides
 
-    # Ollama config (base_url and api_key are required)
+    # Check if new backend configurations are present
+    has_new_backend_config = (
+        "llm_backend" in data or
+        "embedding_backend" in data or
+        "reranking_backend" in data
+    )
+
+    # Ollama config (optional if using new backend system)
     ollama_base_url = _get_config_value(data, "ollama", "openai_base_url", "")
     ollama_api_key = _get_config_value(data, "ollama", "openai_api_key", "")
 
@@ -1001,20 +1008,23 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     if not ollama_api_key:
         ollama_api_key = os.environ.get("OLLAMA_OPENAI_API_KEY", "")
 
-    if not ollama_base_url:
-        raise ValueError(
-            "Missing Ollama base URL. Set RADIANT_OLLAMA_OPENAI_BASE_URL or "
-            "OLLAMA_OPENAI_BASE_URL environment variable, or set ollama.openai_base_url in config file."
-        )
-    if not ollama_api_key:
-        raise ValueError(
-            "Missing Ollama API key. Set RADIANT_OLLAMA_OPENAI_API_KEY or "
-            "OLLAMA_OPENAI_API_KEY environment variable, or set ollama.openai_api_key in config file."
-        )
+    # Only require ollama config if NOT using new backend system
+    if not has_new_backend_config:
+        if not ollama_base_url:
+            raise ValueError(
+                "Missing Ollama base URL. Set RADIANT_OLLAMA_OPENAI_BASE_URL or "
+                "OLLAMA_OPENAI_BASE_URL environment variable, or set ollama.openai_base_url in config file."
+            )
+        if not ollama_api_key:
+            raise ValueError(
+                "Missing Ollama API key. Set RADIANT_OLLAMA_OPENAI_API_KEY or "
+                "OLLAMA_OPENAI_API_KEY environment variable, or set ollama.openai_api_key in config file."
+            )
 
+    # Create ollama config (use defaults if not present)
     ollama = OllamaConfig(
-        openai_base_url=ollama_base_url.rstrip("/"),
-        openai_api_key=ollama_api_key,
+        openai_base_url=(ollama_base_url.rstrip("/") if ollama_base_url else "http://localhost:11434/v1"),
+        openai_api_key=(ollama_api_key if ollama_api_key else "ollama"),
         chat_model=_get_config_value(data, "ollama", "chat_model", "qwen2.5:latest"),
         timeout=_get_config_value(data, "ollama", "timeout", 90, _parse_int),
         max_retries=_get_config_value(data, "ollama", "max_retries", 3, _parse_int),
