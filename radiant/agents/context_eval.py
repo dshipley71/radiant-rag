@@ -296,7 +296,8 @@ Evaluate on these dimensions (0-10 scale):
 3. Specificity: How specific and detailed is the information?
 4. Freshness: Does the information appear current? (estimate)
 
-Return a JSON object:
+Return ONLY raw JSON object with no markdown formatting. Do not wrap in ```json code blocks.
+Format:
 {
   "sufficient": true/false,
   "relevance_score": 0-10,
@@ -319,7 +320,7 @@ Guidelines:
 RETRIEVED CONTEXT:
 {context}
 
-Evaluate the context quality and return JSON only."""
+Evaluate the context quality and return raw JSON only, no code blocks."""
 
         result, response = self._llm.chat_json(
             system=system,
