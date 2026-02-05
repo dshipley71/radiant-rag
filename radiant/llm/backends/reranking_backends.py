@@ -10,6 +10,8 @@ Supports:
 from __future__ import annotations
 
 import logging
+import warnings
+from contextlib import contextmanager
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from radiant.llm.backends.base import BaseRerankingBackend
@@ -18,6 +20,38 @@ if TYPE_CHECKING:
     from radiant.llm.backends.base import BaseLLMBackend
 
 logger = logging.getLogger(__name__)
+
+# Loggers that produce noisy output during model loading
+_NOISY_LOADING_LOGGERS = (
+    "sentence_transformers",
+    "safetensors",
+    "accelerate",
+    "accelerate.utils.modeling",
+    "transformers.modeling_utils",
+)
+
+
+@contextmanager
+def _quiet_model_loading():
+    """
+    Suppress noisy warnings during model loading.
+
+    Temporarily raises log levels for chatty libraries and filters warnings.
+    """
+    prev_levels = {}
+    for name in _NOISY_LOADING_LOGGERS:
+        lgr = logging.getLogger(name)
+        prev_levels[name] = lgr.level
+        lgr.setLevel(logging.ERROR)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*not sharded.*")
+        warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
+        try:
+            yield
+        finally:
+            for name, level in prev_levels.items():
+                logging.getLogger(name).setLevel(level)
 
 
 class CrossEncoderRerankingBackend(BaseRerankingBackend):
@@ -57,8 +91,9 @@ class CrossEncoderRerankingBackend(BaseRerankingBackend):
         # Resolve device
         device_resolved = self._resolve_device(device)
 
-        # Load model
-        self._model = CrossEncoder(model_name, device=device_resolved)
+        # Load model with suppressed warnings
+        with _quiet_model_loading():
+            self._model = CrossEncoder(model_name, device=device_resolved)
 
         logger.info(f"Loaded cross-encoder reranking model: {model_name} (device={device_resolved})")
 

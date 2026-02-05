@@ -12,7 +12,7 @@
 # -----------------------------------------------------------------------------
 vlm:
   # Enable/disable VLM image captioning
-  enabled: true
+  enabled: false
 
   # HuggingFace model name (downloaded automatically)
   # Options:
