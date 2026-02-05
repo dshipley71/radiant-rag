@@ -117,7 +117,10 @@ If no good URLs come to mind, return an empty array: []"""
         )
 
         if not result:
+            self.logger.warning("LLM returned empty array for URL suggestions")
             return []
+
+        self.logger.info(f"LLM suggested {len(result)} URLs: {result}")
 
         valid_urls = []
         for url in result[:self._config.max_results]:
@@ -126,10 +129,14 @@ If no good URLs come to mind, return an empty array: []"""
                 for domain in self._config.blocked_domains:
                     if domain.lower() in url.lower():
                         blocked = True
+                        self.logger.debug(f"Blocked URL (matches blocked domain '{domain}'): {url}")
                         break
                 if not blocked:
                     valid_urls.append(url)
+            else:
+                self.logger.debug(f"Invalid URL format: {url}")
 
+        self.logger.info(f"Validated {len(valid_urls)} URLs from {len(result)} suggestions")
         return valid_urls
 
     def _fetch_and_parse(self, urls: List[str]) -> List[Tuple[Any, float]]:
@@ -150,11 +157,12 @@ If no good URLs come to mind, return an empty array: []"""
         
         try:
             for i, url in enumerate(urls[:self._config.max_pages]):
+                self.logger.debug(f"Fetching URL {i+1}/{len(urls[:self._config.max_pages])}: {url}")
                 try:
                     crawl_result = crawler.crawl_single(url, save_file=False)
-                    
+
                     if not crawl_result.success or not crawl_result.content:
-                        self.logger.debug(f"Failed to fetch {url}: {crawl_result.error}")
+                        self.logger.warning(f"Failed to fetch {url}: {crawl_result.error}")
                         continue
                     
                     if crawl_result.is_html:
