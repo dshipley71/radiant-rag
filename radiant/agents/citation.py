@@ -224,22 +224,49 @@ class CitationTrackingAgent:
     ) -> List[SourceDocument]:
         """
         Extract source document metadata from context.
-        
+
+        Deduplicates multiple chunks from the same parent document.
+
         Args:
             context_docs: Retrieved documents
             scores: Optional relevance scores
-            
+
         Returns:
-            List of SourceDocument objects
+            List of deduplicated SourceDocument objects
         """
-        sources = []
-        
+        # Group chunks by parent document
+        parent_groups: Dict[str, List[tuple]] = {}
+
         for i, doc in enumerate(context_docs):
-            # Extract metadata from doc
             meta = getattr(doc, 'meta', {})
-            content = getattr(doc, 'content', str(doc))
-            doc_id = getattr(doc, 'doc_id', f"doc_{i}")
-            
+            score = scores[i] if scores and i < len(scores) else 0.5
+
+            # Determine parent document identifier
+            # Priority: parent_id > source_url > source_path > doc_id
+            parent_key = (
+                meta.get("parent_id") or
+                meta.get("source_url") or
+                meta.get("source_path") or
+                getattr(doc, 'doc_id', f"doc_{i}")
+            )
+
+            if parent_key not in parent_groups:
+                parent_groups[parent_key] = []
+            parent_groups[parent_key].append((i, doc, score))
+
+        # Create one SourceDocument per parent
+        sources = []
+
+        for parent_key, chunks in parent_groups.items():
+            # Use chunk with highest relevance score as representative
+            chunks_sorted = sorted(chunks, key=lambda x: x[2], reverse=True)
+            best_idx, best_doc, best_score = chunks_sorted[0]
+
+            # Extract metadata from best chunk
+            meta = getattr(best_doc, 'meta', {})
+            content = getattr(best_doc, 'content', str(best_doc))
+            doc_id = getattr(best_doc, 'doc_id', f"doc_{best_idx}")
+
             # Determine source type
             if meta.get("source_type") == "web_search":
                 source_type = "web_search"
@@ -249,15 +276,15 @@ class CitationTrackingAgent:
                 source_type = "indexed"
             else:
                 source_type = "unknown"
-            
+
             # Extract title
             title = meta.get("page_title") or meta.get("title")
             if not title:
                 # Try to extract from content
                 title = self._extract_title(content)
             if not title:
-                title = f"Source {i + 1}"
-            
+                title = f"Source {len(sources) + 1}"
+
             source = SourceDocument(
                 doc_id=doc_id,
                 title=title,
@@ -269,11 +296,14 @@ class CitationTrackingAgent:
                 date=meta.get("date") or meta.get("fetched_at"),
                 page_number=meta.get("page_number"),
                 chunk_index=meta.get("chunk_index"),
-                relevance_score=scores[i] if scores and i < len(scores) else 0.5,
+                relevance_score=best_score,
                 metadata=meta,
             )
             sources.append(source)
-        
+
+        # Sort by relevance score (descending)
+        sources.sort(key=lambda s: s.relevance_score, reverse=True)
+
         return sources
     
     def _extract_title(self, content: str) -> Optional[str]:
