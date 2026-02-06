@@ -749,6 +749,39 @@ class UnstructuredCleaningConfig:
 
 
 @dataclass(frozen=True)
+class JSONParsingConfig:
+    """JSON and JSONL document parsing configuration."""
+    # Enable JSON/JSONL parsing
+    enabled: bool = True
+
+    # Parsing strategy: "auto", "flatten", "records", "semantic", "logs"
+    default_strategy: str = "auto"
+
+    # For "records" strategy: minimum array size to split into separate documents
+    min_array_size_for_splitting: int = 3
+
+    # For "semantic" strategy: fields to prioritize for text content
+    text_fields: List[str] = field(default_factory=lambda: [
+        "content", "body", "text", "description", "message", "summary", "details", "value"
+    ])
+    title_fields: List[str] = field(default_factory=lambda: [
+        "title", "name", "subject", "heading", "label", "key"
+    ])
+
+    # For "flatten" strategy: maximum nesting depth to prevent infinite recursion
+    max_nesting_depth: int = 10
+    flatten_separator: str = "."
+
+    # JSONL batch processing size
+    jsonl_batch_size: int = 1000
+
+    # Fields to always preserve in metadata (not just content)
+    preserve_fields: List[str] = field(default_factory=lambda: [
+        "id", "timestamp", "date", "created_at", "updated_at", "type", "category", "level", "status"
+    ])
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     """Logging configuration."""
     level: str = "INFO"
@@ -936,6 +969,7 @@ class AppConfig:
     conversation: ConversationConfig
     parsing: ParsingConfig
     unstructured_cleaning: UnstructuredCleaningConfig
+    json_parsing: JSONParsingConfig
     logging: LoggingConfig
     metrics: MetricsConfig
     performance: PerformanceConfig
@@ -1376,6 +1410,29 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         preview_max_chars=_get_config_value(data, "unstructured_cleaning", "preview_max_chars", 800, _parse_int),
     )
 
+    # JSON parsing configuration
+    json_text_fields = _get_config_value(data, "json_parsing", "text_fields", [])
+    json_title_fields = _get_config_value(data, "json_parsing", "title_fields", [])
+    json_preserve_fields = _get_config_value(data, "json_parsing", "preserve_fields", [])
+
+    json_parsing = JSONParsingConfig(
+        enabled=_get_config_value(data, "json_parsing", "enabled", True, _parse_bool),
+        default_strategy=_get_config_value(data, "json_parsing", "default_strategy", "auto"),
+        min_array_size_for_splitting=_get_config_value(data, "json_parsing", "min_array_size_for_splitting", 3, _parse_int),
+        text_fields=json_text_fields if json_text_fields else [
+            "content", "body", "text", "description", "message", "summary", "details", "value"
+        ],
+        title_fields=json_title_fields if json_title_fields else [
+            "title", "name", "subject", "heading", "label", "key"
+        ],
+        max_nesting_depth=_get_config_value(data, "json_parsing", "max_nesting_depth", 10, _parse_int),
+        flatten_separator=_get_config_value(data, "json_parsing", "flatten_separator", "."),
+        jsonl_batch_size=_get_config_value(data, "json_parsing", "jsonl_batch_size", 1000, _parse_int),
+        preserve_fields=json_preserve_fields if json_preserve_fields else [
+            "id", "timestamp", "date", "created_at", "updated_at", "type", "category", "level", "status"
+        ],
+    )
+
     logging_config = LoggingConfig(
         level=_get_config_value(data, "logging", "level", "INFO"),
         format=_get_config_value(data, "logging", "format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
@@ -1509,6 +1566,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         conversation=conversation,
         parsing=parsing,
         unstructured_cleaning=unstructured_cleaning,
+        json_parsing=json_parsing,
         logging=logging_config,
         metrics=metrics,
         performance=performance,
