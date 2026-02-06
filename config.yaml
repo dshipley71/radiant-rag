@@ -814,6 +814,10 @@ web_crawler:
     - ".*/logout.*"
     - ".*/signin.*"
     - ".*/signout.*"
+    - ".*/wp-json/.*"       # WordPress REST API endpoints
+    - ".*/api/.*"           # Generic API endpoints
+    - ".*/xmlrpc\\.php.*"   # WordPress XML-RPC
+    - ".*/cdn-cgi/.*"       # Cloudflare CDN scripts
 
   # Request timeout in seconds
   timeout: 30
