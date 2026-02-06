@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
 
-from radiant.config import UnstructuredCleaningConfig
+from radiant.config import UnstructuredCleaningConfig, JSONParsingConfig
 
 if TYPE_CHECKING:
     from radiant.ingestion.image_captioner import ImageCaptioner
@@ -33,6 +33,18 @@ except ImportError:
 
 # Image extensions for captioning
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+
+# Try to import JSON parser
+try:
+    from radiant.ingestion.json_parser import (
+        JSONParser,
+        JSONParsingStrategy,
+        ParsedJSONChunk,
+    )
+    JSON_PARSER_AVAILABLE = True
+except ImportError:
+    JSON_PARSER_AVAILABLE = False
+    logger.warning("JSON parser not available")
 
 
 @dataclass(frozen=True)
@@ -461,6 +473,7 @@ class DocumentProcessor:
         chunk_size: int = 512,
         chunk_overlap: int = 50,
         image_captioner: Optional["ImageCaptioner"] = None,
+        json_config: Optional[JSONParsingConfig] = None,
     ) -> None:
         """
         Initialize document processor.
@@ -471,12 +484,30 @@ class DocumentProcessor:
             chunk_size: Target chunk size
             chunk_overlap: Chunk overlap
             image_captioner: Optional VLM captioner for image files
+            json_config: JSON/JSONL parsing configuration
         """
         self._cleaning = CleaningOptions.from_config(cleaning_config)
         self._strategy = strategy
         self._splitter = ChunkSplitter(chunk_size, chunk_overlap)
         self._preview_config = cleaning_config
         self._captioner = image_captioner
+
+        # Initialize JSON parser if available and enabled
+        self._json_parser = None
+        if JSON_PARSER_AVAILABLE and json_config and json_config.enabled:
+            from radiant.ingestion.json_parser import JSONParsingConfig as ParserConfig
+            # Convert config dataclass to parser config
+            parser_config = ParserConfig(
+                default_strategy=JSONParsingStrategy(json_config.default_strategy),
+                min_array_size_for_splitting=json_config.min_array_size_for_splitting,
+                text_fields=json_config.text_fields,
+                title_fields=json_config.title_fields,
+                max_nesting_depth=json_config.max_nesting_depth,
+                flatten_separator=json_config.flatten_separator,
+                jsonl_batch_size=json_config.jsonl_batch_size,
+                preserve_fields=json_config.preserve_fields,
+            )
+            self._json_parser = JSONParser(parser_config)
 
     def process_file(
         self,
@@ -500,7 +531,25 @@ class DocumentProcessor:
         # Determine parsing method
         path = Path(file_path)
 
-        if path.suffix.lower() in (".txt", ".md", ".rst"):
+        if path.suffix.lower() in (".json", ".jsonl") and self._json_parser:
+            # JSON/JSONL files - use JSON parser
+            try:
+                if path.suffix.lower() == ".jsonl":
+                    parsed_chunks = self._json_parser.parse_jsonl_file(file_path)
+                else:
+                    parsed_chunks = self._json_parser.parse_json_file(file_path)
+
+                # Convert ParsedJSONChunk to IngestedChunk
+                chunks = [
+                    IngestedChunk(content=pc.content, meta=pc.meta)
+                    for pc in parsed_chunks
+                ]
+            except Exception as e:
+                logger.error(f"JSON parsing failed for {file_path}: {e}")
+                # Fallback to text parsing
+                chunks = parse_text_file(file_path, self._cleaning)
+
+        elif path.suffix.lower() in (".txt", ".md", ".rst"):
             # Simple text files
             chunks = parse_text_file(file_path, self._cleaning)
         elif _is_image_file(file_path):
@@ -600,10 +649,11 @@ class IntelligentDocumentProcessor(DocumentProcessor):
         image_captioner: Optional["ImageCaptioner"] = None,
         chunking_agent: Optional[Any] = None,
         use_intelligent_chunking: bool = True,
+        json_config: Optional[JSONParsingConfig] = None,
     ) -> None:
         """
         Initialize intelligent document processor.
-        
+
         Args:
             cleaning_config: Cleaning configuration
             strategy: Partition strategy ("auto", "fast", "hi_res", "ocr_only")
@@ -612,6 +662,7 @@ class IntelligentDocumentProcessor(DocumentProcessor):
             image_captioner: Optional VLM captioner for image files
             chunking_agent: IntelligentChunkingAgent instance
             use_intelligent_chunking: Whether to use intelligent chunking
+            json_config: JSON/JSONL parsing configuration
         """
         super().__init__(
             cleaning_config=cleaning_config,
@@ -619,6 +670,7 @@ class IntelligentDocumentProcessor(DocumentProcessor):
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             image_captioner=image_captioner,
+            json_config=json_config,
         )
         self._chunking_agent = chunking_agent
         self._use_intelligent_chunking = use_intelligent_chunking and chunking_agent is not None

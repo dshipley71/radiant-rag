@@ -717,6 +717,63 @@ unstructured_cleaning:
   preview_max_chars: 800
 
 # -----------------------------------------------------------------------------
+# JSON/JSONL Parsing Configuration
+# -----------------------------------------------------------------------------
+# Controls how JSON and JSONL files are parsed and converted to searchable text
+json_parsing:
+  # Enable JSON/JSONL parsing
+  enabled: true
+
+  # Parsing strategy: "auto", "flatten", "records", "semantic", "logs"
+  # - auto: Automatically detect best strategy based on structure
+  # - flatten: Convert to flat key-value text (for configs, settings)
+  # - records: Split arrays into separate documents (for data exports)
+  # - semantic: Extract text-rich fields (for articles, documentation)
+  # - logs: Parse as structured log entries (for JSONL logs)
+  default_strategy: "auto"
+
+  # For "records" strategy: minimum array size to split into separate documents
+  min_array_size_for_splitting: 3
+
+  # For "semantic" strategy: fields to prioritize for text content
+  text_fields:
+    - "content"
+    - "body"
+    - "text"
+    - "description"
+    - "message"
+    - "summary"
+    - "details"
+    - "value"
+
+  title_fields:
+    - "title"
+    - "name"
+    - "subject"
+    - "heading"
+    - "label"
+    - "key"
+
+  # For "flatten" strategy: maximum nesting depth to prevent infinite recursion
+  max_nesting_depth: 10
+  flatten_separator: "."
+
+  # JSONL batch processing size
+  jsonl_batch_size: 1000
+
+  # Fields to always preserve in metadata (not just content)
+  preserve_fields:
+    - "id"
+    - "timestamp"
+    - "date"
+    - "created_at"
+    - "updated_at"
+    - "type"
+    - "category"
+    - "level"
+    - "status"
+
+# -----------------------------------------------------------------------------
 # Logging Configuration
 # -----------------------------------------------------------------------------
 logging:
