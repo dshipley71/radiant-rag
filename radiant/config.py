@@ -653,21 +653,27 @@ class CitationConfig:
 @dataclass(frozen=True)
 class LanguageDetectionConfig:
     """Language detection agent configuration."""
-    
+
     # Enable language detection
     enabled: bool = True
-    
-    # Detection method: "fast" (fast-langdetect), "llm", "auto"
+
+    # Detection method: "fast" (fasttext), "llm", "auto"
     method: str = "fast"
-    
-    # Minimum confidence threshold for fast-langdetect
+
+    # Minimum confidence threshold for fasttext
     min_confidence: float = 0.7
-    
+
     # Use LLM fallback for low-confidence detections
     use_llm_fallback: bool = True
-    
+
     # Default language if detection fails
     fallback_language: str = "en"
+
+    # FastText model configuration
+    model_path: str = "./data/models/fasttext/lid.176.ftz"
+    model_url: str = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
+    auto_download: bool = True
+    verify_checksum: bool = False  # Set to True to verify model integrity (requires checksum)
 
 
 @dataclass(frozen=True)

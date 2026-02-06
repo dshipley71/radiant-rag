@@ -1,7 +1,7 @@
 """
 Language detection agent for RAG pipeline.
 
-Detects the language of text using fast-langdetect with optional LLM fallback
+Detects the language of text using FastText with optional LLM fallback
 for low-confidence or ambiguous cases.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,15 +17,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Try to import fast-langdetect
+# Try to import fasttext
+try:
+    import fasttext
+    FASTTEXT_AVAILABLE = True
+except ImportError:
+    FASTTEXT_AVAILABLE = False
+    logger.warning(
+        "fasttext not available. Install with: pip install fasttext"
+    )
+
+# Try to import fast-langdetect as fallback
 try:
     from fast_langdetect import detect as fast_detect
     FAST_LANGDETECT_AVAILABLE = True
 except ImportError:
     FAST_LANGDETECT_AVAILABLE = False
-    logger.warning(
-        "fast-langdetect not available. Install with: pip install fast-langdetect"
-    )
+
+# Import model manager
+try:
+    from radiant.utils.model_manager import ModelManager, ModelDownloadError
+    MODEL_MANAGER_AVAILABLE = True
+except ImportError:
+    MODEL_MANAGER_AVAILABLE = False
+    logger.warning("ModelManager not available")
 
 
 # ISO 639-1 language code to name mapping (common languages)
@@ -130,17 +146,17 @@ class LanguageDetection:
 
 class LanguageDetectionAgent:
     """
-    Language detection agent using fast-langdetect with LLM fallback.
-    
-    Fast-langdetect uses Facebook's FastText model which provides:
+    Language detection agent using FastText with LLM fallback.
+
+    FastText language detection model provides:
     - Very fast detection (~0.1ms per text)
     - Support for 176 languages
     - Good accuracy even on short text
-    
+
     For low-confidence detections, falls back to LLM-based detection
     for more accurate results on ambiguous content.
     """
-    
+
     def __init__(
         self,
         llm: Optional["LLMClient"] = None,
@@ -148,28 +164,96 @@ class LanguageDetectionAgent:
         min_confidence: float = 0.7,
         use_llm_fallback: bool = True,
         fallback_language: str = "en",
+        model_path: str = "./data/models/fasttext/lid.176.ftz",
+        model_url: str = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz",
+        auto_download: bool = True,
+        verify_checksum: bool = False,
     ) -> None:
         """
         Initialize language detection agent.
-        
+
         Args:
             llm: LLM client for fallback detection
             method: Detection method ("fast", "llm", "auto")
-            min_confidence: Minimum confidence for fast-langdetect
+            min_confidence: Minimum confidence for fasttext
             use_llm_fallback: Whether to use LLM for low-confidence cases
             fallback_language: Default language if detection fails
+            model_path: Path to FastText model file
+            model_url: URL to download model from if not found
+            auto_download: Whether to auto-download model if missing
+            verify_checksum: Whether to verify model checksum
         """
         self._llm = llm
         self._method = method
         self._min_confidence = min_confidence
         self._use_llm_fallback = use_llm_fallback
         self._fallback_language = fallback_language
-        
-        if method == "fast" and not FAST_LANGDETECT_AVAILABLE:
-            logger.warning(
-                "fast-langdetect not available, falling back to LLM-only detection"
+        self._model_path = model_path
+        self._model_url = model_url
+        self._auto_download = auto_download
+        self._verify_checksum = verify_checksum
+        self._fasttext_model = None
+
+        # Try to load FastText model if using fast method
+        if method == "fast" or method == "auto":
+            self._load_fasttext_model()
+
+        # Check if we have a working detection method
+        if method == "fast" and self._fasttext_model is None:
+            if FAST_LANGDETECT_AVAILABLE:
+                logger.info("Using fast-langdetect as fallback")
+            elif self._llm and use_llm_fallback:
+                logger.warning(
+                    "FastText model not available, falling back to LLM-only detection"
+                )
+                self._method = "llm"
+            else:
+                logger.warning(
+                    "No detection method available! Install fasttext or fast-langdetect, "
+                    "or provide an LLM client"
+                )
+
+    def _load_fasttext_model(self) -> None:
+        """Load FastText model from configured path."""
+
+        if not FASTTEXT_AVAILABLE:
+            logger.debug("fasttext library not available, skipping model load")
+            return
+
+        if not MODEL_MANAGER_AVAILABLE:
+            logger.warning("ModelManager not available, cannot download model")
+            # Try to load from path if it exists
+            if Path(self._model_path).exists():
+                try:
+                    # Suppress fasttext warnings
+                    fasttext.FastText.eprint = lambda *args, **kwargs: None
+                    self._fasttext_model = fasttext.load_model(self._model_path)
+                    logger.info(f"Loaded FastText model from {self._model_path}")
+                except Exception as e:
+                    logger.error(f"Failed to load FastText model: {e}")
+            return
+
+        try:
+            # Ensure model exists (download if needed)
+            model_path = ModelManager.ensure_model(
+                model_path=self._model_path,
+                download_url=self._model_url if self._auto_download else None,
+                auto_download=self._auto_download,
+                checksum=None if not self._verify_checksum else None,  # Add checksum if needed
             )
-            self._method = "llm"
+
+            if model_path:
+                # Suppress fasttext warnings
+                fasttext.FastText.eprint = lambda *args, **kwargs: None
+                self._fasttext_model = fasttext.load_model(str(model_path))
+                logger.info(f"Loaded FastText model from {model_path}")
+            else:
+                logger.warning(f"FastText model not available at {self._model_path}")
+
+        except ModelDownloadError as e:
+            logger.error(f"Failed to download FastText model: {e}")
+        except Exception as e:
+            logger.error(f"Failed to load FastText model: {e}")
     
     def detect(self, text: str) -> LanguageDetection:
         """
@@ -202,82 +286,115 @@ class LanguageDetectionAgent:
             return self._detect_auto(clean_text)
     
     def _detect_with_fast(self, text: str) -> LanguageDetection:
-        """Detect language using fast-langdetect."""
-        
-        if not FAST_LANGDETECT_AVAILABLE:
-            return self._detect_with_llm(text)
-        
-        try:
-            # Use fast-langdetect
-            # Sample longer texts to improve accuracy
-            sample = text[:5000] if len(text) > 5000 else text
-            
-            result = fast_detect(sample)
-            
-            # Handle different return formats from fast-langdetect
-            # Newer versions may return a list of tuples or a DetectResult object
-            if isinstance(result, dict):
-                # Dict format: {"lang": "en", "score": 0.99}
-                lang_code = result.get("lang", self._fallback_language)
-                confidence = float(result.get("score", 0.0))
-            elif isinstance(result, (list, tuple)):
-                # List/tuple format: [("en", 0.99)] or ("en", 0.99)
-                if len(result) > 0:
-                    first_result = result[0] if isinstance(result[0], (list, tuple)) else result
-                    lang_code = str(first_result[0]) if len(first_result) > 0 else self._fallback_language
-                    confidence = float(first_result[1]) if len(first_result) > 1 else 0.0
+        """Detect language using FastText model."""
+
+        # Try fasttext model first (preferred)
+        if self._fasttext_model is not None:
+            try:
+                # Sample longer texts to improve accuracy
+                sample = text[:5000] if len(text) > 5000 else text
+
+                # FastText predict returns: (labels, probabilities)
+                # labels is a tuple like ('__label__en',)
+                # probabilities is a tuple like (0.9999,)
+                predictions = self._fasttext_model.predict(sample.replace('\n', ' '), k=1)
+
+                if predictions and len(predictions) == 2:
+                    labels, probabilities = predictions
+
+                    if len(labels) > 0 and len(probabilities) > 0:
+                        # Extract language code from label (remove __label__ prefix)
+                        label = str(labels[0])
+                        lang_code = label.replace('__label__', '').strip()
+                        confidence = float(probabilities[0])
+
+                        # Check if confidence meets threshold
+                        if confidence >= self._min_confidence:
+                            return LanguageDetection(
+                                language_code=lang_code,
+                                language_name=self._get_language_name(lang_code),
+                                confidence=confidence,
+                                method="fasttext",
+                            )
+
+                        # Low confidence - try LLM fallback if enabled
+                        if self._use_llm_fallback and self._llm:
+                            logger.debug(
+                                f"Low confidence ({confidence:.2f}) from FastText, "
+                                f"trying LLM fallback"
+                            )
+                            return self._detect_with_llm(text)
+
+                        # Return low-confidence result
+                        return LanguageDetection(
+                            language_code=lang_code,
+                            language_name=self._get_language_name(lang_code),
+                            confidence=confidence,
+                            method="fasttext_low_confidence",
+                        )
+
+            except Exception as e:
+                logger.warning(f"FastText detection failed: {e}")
+                # Fall through to fast-langdetect fallback
+
+        # Fallback to fast-langdetect if available
+        if FAST_LANGDETECT_AVAILABLE:
+            try:
+                sample = text[:5000] if len(text) > 5000 else text
+                result = fast_detect(sample)
+
+                # Handle different return formats from fast-langdetect
+                if isinstance(result, dict):
+                    lang_code = result.get("lang", self._fallback_language)
+                    confidence = float(result.get("score", 0.0))
+                elif isinstance(result, (list, tuple)):
+                    if len(result) > 0:
+                        first_result = result[0] if isinstance(result[0], (list, tuple)) else result
+                        lang_code = str(first_result[0]) if len(first_result) > 0 else self._fallback_language
+                        confidence = float(first_result[1]) if len(first_result) > 1 else 0.0
+                    else:
+                        lang_code = self._fallback_language
+                        confidence = 0.0
+                elif hasattr(result, 'lang') and hasattr(result, 'score'):
+                    lang_code = str(result.lang)
+                    confidence = float(result.score)
                 else:
-                    lang_code = self._fallback_language
-                    confidence = 0.0
-            elif hasattr(result, 'lang') and hasattr(result, 'score'):
-                # DetectResult object with attributes
-                lang_code = str(result.lang)
-                confidence = float(result.score)
-            else:
-                # Unknown format - try string conversion
-                lang_code = str(result)[:2].lower() if result else self._fallback_language
-                confidence = 0.5
-            
-            # Normalize language code
-            lang_code = lang_code.lower().strip()
-            
-            # Check if confidence meets threshold
-            if confidence >= self._min_confidence:
+                    lang_code = str(result)[:2].lower() if result else self._fallback_language
+                    confidence = 0.5
+
+                lang_code = lang_code.lower().strip()
+
+                if confidence >= self._min_confidence:
+                    return LanguageDetection(
+                        language_code=lang_code,
+                        language_name=self._get_language_name(lang_code),
+                        confidence=confidence,
+                        method="fast_langdetect",
+                    )
+
+                if self._use_llm_fallback and self._llm:
+                    return self._detect_with_llm(text)
+
                 return LanguageDetection(
                     language_code=lang_code,
                     language_name=self._get_language_name(lang_code),
                     confidence=confidence,
-                    method="fast",
+                    method="fast_langdetect_low_confidence",
                 )
-            
-            # Low confidence - try LLM fallback if enabled
-            if self._use_llm_fallback and self._llm:
-                logger.debug(
-                    f"Low confidence ({confidence:.2f}) from fast-langdetect, "
-                    f"trying LLM fallback"
-                )
-                return self._detect_with_llm(text)
-            
-            # Return low-confidence result
-            return LanguageDetection(
-                language_code=lang_code,
-                language_name=self._get_language_name(lang_code),
-                confidence=confidence,
-                method="fast_low_confidence",
-            )
-            
-        except Exception as e:
-            logger.warning(f"fast-langdetect failed: {e}")
-            
-            if self._use_llm_fallback and self._llm:
-                return self._detect_with_llm(text)
-            
-            return LanguageDetection(
-                language_code=self._fallback_language,
-                language_name=self._get_language_name(self._fallback_language),
-                confidence=0.5,
-                method="fallback_error",
-            )
+
+            except Exception as e:
+                logger.warning(f"fast-langdetect failed: {e}")
+
+        # Last resort - try LLM or return fallback
+        if self._use_llm_fallback and self._llm:
+            return self._detect_with_llm(text)
+
+        return LanguageDetection(
+            language_code=self._fallback_language,
+            language_name=self._get_language_name(self._fallback_language),
+            confidence=0.5,
+            method="fallback_no_detector",
+        )
     
     def _detect_with_llm(self, text: str) -> LanguageDetection:
         """Detect language using LLM."""
