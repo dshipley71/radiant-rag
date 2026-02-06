@@ -584,13 +584,13 @@ language_detection:
   # Enable language detection
   enabled: true
 
-  # Detection method: "fast" (fast-langdetect), "llm", "auto"
+  # Detection method: "fast" (fasttext), "llm", "auto"
   # - fast: Uses Facebook's FastText model (fastest, 176 languages)
   # - llm: Uses LLM for detection (slower but handles edge cases)
   # - auto: Tries fast first, falls back to llm if needed
   method: "fast"
 
-  # Minimum confidence threshold for fast-langdetect (0-1)
+  # Minimum confidence threshold for fasttext (0-1)
   # Below this threshold, LLM fallback will be used if enabled
   min_confidence: 0.7
 
@@ -599,6 +599,19 @@ language_detection:
 
   # Default language if detection fails
   fallback_language: "en"
+
+  # FastText Model Configuration
+  # Path to store the language identification model (lid.176.ftz, ~131 MB)
+  model_path: "./data/models/fasttext/lid.176.ftz"
+
+  # URL to download the model from (Facebook AI Research official model)
+  model_url: "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
+
+  # Automatically download model if not found locally
+  auto_download: true
+
+  # Verify model integrity with checksum (optional, requires valid checksum)
+  verify_checksum: false
 
 # -----------------------------------------------------------------------------
 # Translation Configuration

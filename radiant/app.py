@@ -153,6 +153,10 @@ class RadiantRAG:
                 min_confidence=self._config.language_detection.min_confidence,
                 use_llm_fallback=self._config.language_detection.use_llm_fallback,
                 fallback_language=self._config.language_detection.fallback_language,
+                model_path=self._config.language_detection.model_path,
+                model_url=self._config.language_detection.model_url,
+                auto_download=self._config.language_detection.auto_download,
+                verify_checksum=self._config.language_detection.verify_checksum,
             )
             logger.info(
                 f"Language detection enabled (method={self._config.language_detection.method})"
