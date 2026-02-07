@@ -604,7 +604,7 @@ class WebCrawler:
 
 def crawl_urls(
     urls: List[str],
-    max_depth: int = 2,
+    max_depth: int = 1,
     max_pages: int = 100,
     same_domain_only: bool = True,
     basic_auth: Optional[Tuple[str, str]] = None,
