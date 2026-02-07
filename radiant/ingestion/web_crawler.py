@@ -227,8 +227,8 @@ class WebCrawler:
 
     def __init__(
         self,
-        max_depth: int = 2,
-        max_pages: int = 100,
+        max_depth: int = 1,
+        max_pages: int = 1,
         same_domain_only: bool = True,
         include_patterns: Optional[List[str]] = None,
         exclude_patterns: Optional[List[str]] = None,
