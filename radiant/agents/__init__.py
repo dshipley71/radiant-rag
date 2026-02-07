@@ -17,6 +17,7 @@ Provides specialized agents for each stage of the RAG pipeline:
     - Citation tracking (enterprise compliance)
     - Language detection (multilingual support)
     - Translation (canonical language indexing)
+    - GDELT news (article download, timeline/trend analysis, graph construction)
 """
 
 # Base agent classes
@@ -136,6 +137,23 @@ from radiant.agents.translation import (
     TranslationError,
 )
 
+# GDELT news agents
+from radiant.agents.gdelt import (
+    GDELTConfig,
+    load_gdelt_config,
+    GDELTClient,
+    GDELTArticle,
+    GDELTArticleSearchResult,
+    GDELTGraphEdge,
+    GDELTGraphNode,
+    GDELTGraphResult,
+    GDELTTimelinePoint,
+    GDELTTimelineResult,
+    GDELTDownloadAgent,
+    GDELTTimelineAgent,
+    GDELTGraphAgent,
+)
+
 __all__ = [
     # Base agent classes
     "AgentCategory",
@@ -215,4 +233,18 @@ __all__ = [
     "TranslationAgent",
     "TranslationResult",
     "TranslationError",
+    # GDELT news agents
+    "GDELTConfig",
+    "load_gdelt_config",
+    "GDELTClient",
+    "GDELTArticle",
+    "GDELTArticleSearchResult",
+    "GDELTGraphEdge",
+    "GDELTGraphNode",
+    "GDELTGraphResult",
+    "GDELTTimelinePoint",
+    "GDELTTimelineResult",
+    "GDELTDownloadAgent",
+    "GDELTTimelineAgent",
+    "GDELTGraphAgent",
 ]
